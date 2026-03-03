@@ -7,7 +7,7 @@ CXX := nvcc
 
 # -- System paths (Configured for Leonardo NVHPC/OpenMPI) --
 CUDA_HOME := /leonardo/prod/spack/06/install/0.22/linux-rhel8-icelake/gcc-8.5.0/nvhpc-24.5-torlmnyzcexnrs6pq4cccabv7ehkv3xy/Linux_x86_64/24.5/cuda
-NCCL_HOME := /leonardo/prod/spack/06/install/0.22/linux-rhel8-icelake/gcc-8.5.0/nvhpc-24.5-torlmnyzcexnrs6pq4cexnrs6pq4cccabv7ehkv3xy/Linux_x86_64/24.5/comm_libs/nccl
+NCCL_HOME := /leonardo/prod/spack/06/install/0.22/linux-rhel8-icelake/gcc-8.5.0/nvhpc-24.5-torlmnyzcexnrs6pq4cccabv7ehkv3xy/Linux_x86_64/24.5/comm_libs/nccl
 MPI_HOME  := /leonardo/prod/spack/06/install/0.22/linux-rhel8-icelake/gcc-12.2.0/openmpi-4.1.6-jnvfio5kii7e7oba2bu4jsgzr4nvwhkw
 
 # On Leonardo, OpenMPI is usually CUDA-aware by default.
