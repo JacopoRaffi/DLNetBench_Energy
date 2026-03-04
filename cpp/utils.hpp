@@ -128,8 +128,10 @@ int estimate_runs(std::vector<float>& warmup_times, uint64_t min_exectime){
     global_avg_time /= warmup_times.size();
     int estimated_runs = static_cast<int>(std::ceil(min_exectime / global_avg_time));
 
-    return estimated_runs;
+    // rank 0 broadcast estimated runs to all other processes
+    MPI_Bcast(&estimated_runs, 1, MPI_INT, 0, MPI_COMM_WORLD);
 
+    return estimated_runs;
 }
 
 
