@@ -3,10 +3,10 @@ CXX := nvcc
 # -- System paths (NVHPC 24.7 CUDA 12.5) --
 NVHPC_ROOT := /opt/shares/NVHPC/nvhpc_24.7_cuda_12.5/Linux_x86_64/24.7
 
+# -- System paths --
 CUDA_HOME := $(NVHPC_ROOT)/cuda
-MPI_HOME  := $(NVHPC_ROOT)/comm_libs/mpi
-
-NCCL_HOME := /opt/shares/NVHPC/nvhpc_2024_247_Linux_x86_64_cuda_12.5/install_components/Linux_x86_64/24.7/REDIST/comm_libs/12.5/nccl
+MPI_HOME  := $(NVHPC_ROOT)/comm_libs/12.5/hpcx/hpcx-2.19/ompi
+NCCL_HOME := $(NVHPC_ROOT)/install_components/Linux_x86_64/24.7/REDIST/comm_libs/12.5/nccl
 
 # OpenMPI bundled with NVHPC is CUDA-aware
 MPICUDA_HOME := $(MPI_HOME)
