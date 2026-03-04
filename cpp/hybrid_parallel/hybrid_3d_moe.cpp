@@ -31,10 +31,6 @@ using nlohmann::json;
 #include <ccutils/cuda/cuda_macros.hpp>
 #endif
 
-#ifdef PROXY_ENERGY_PROFILING
-#include <profiler/power_profiler.hpp>
-#endif
-
 #ifdef PROXY_ENABLE_ONECCL
 #include <oneapi/ccl.hpp>
 #include <CL/sycl.hpp>
@@ -63,8 +59,8 @@ constexpr Device device = Device::CPU;
 #endif
 
 // Default values
-#define WARM_UP 8
-#define RUNS 10
+#define WARM_UP 4
+#define RUNS 1
 #define POWER_SAMPLING_RATE_MS 5
 
 CCUTILS_MPI_TIMER_DEF(runtime)
@@ -132,25 +128,30 @@ int run_data_pipe_expert_parallel(
     // GPipe Pipeline Schedule
     // Forward pass for all micro-batches
     for(int i = 0; i < num_microbatches; i++){
-        CCUTILS_MPI_TIMER_START(pp_comm)
         if(stage_id == 0){
             // First stage: compute then send
             usleep(fwd_rt);
+            CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->send(fwd_send_buff->data, pipe_msg_size, stage_id+1);
+            CCUTILS_MPI_TIMER_STOP(pp_comm)
         } 
         else if(stage_id == num_stage-1){
             // Last stage: receive then compute
+            CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->recv(fwd_recv_buff->data, pipe_msg_size, stage_id-1);
+            CCUTILS_MPI_TIMER_STOP(pp_comm)
             usleep(fwd_rt);
         } 
         else{
             // Middle stages: receive, compute, send
+            CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->recv(fwd_recv_buff->data, pipe_msg_size, stage_id-1);
+            CCUTILS_MPI_TIMER_STOP(pp_comm)
             usleep(fwd_rt);
+            CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->send(fwd_send_buff->data, pipe_msg_size, stage_id+1);
+            CCUTILS_MPI_TIMER_STOP(pp_comm)
         }
-        CCUTILS_MPI_TIMER_STOP(pp_comm)
-
         // Expert parallel communication during forward pass
         // In MoE layers: All-to-All to route tokens to experts
         // Assuming MoE layers occur at regular intervals (e.g., every other layer)
@@ -166,25 +167,30 @@ int run_data_pipe_expert_parallel(
     
     // Backward pass for all micro-batches
     for(int i = 0; i < num_microbatches; i++){
-        CCUTILS_MPI_TIMER_START(pp_comm)
         if(stage_id == 0){
             // First stage: receive then compute
+            CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->recv(bwd_recv_buff->data, pipe_msg_size, stage_id+1);
+            CCUTILS_MPI_TIMER_STOP(pp_comm)
             usleep(bwd_rt);
         } 
         else if(stage_id == num_stage-1){
             // Last stage: compute then send
             usleep(bwd_rt);
+            CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->send(bwd_send_buff->data, pipe_msg_size, stage_id-1);
+            CCUTILS_MPI_TIMER_STOP(pp_comm)
         } 
         else{
             // Middle stages: receive, compute, send
+            CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->recv(bwd_recv_buff->data, pipe_msg_size, stage_id+1);
+            CCUTILS_MPI_TIMER_STOP(pp_comm)
             usleep(bwd_rt);
+            CCUTILS_MPI_TIMER_START(pp_comm)
             pp_communicator->send(bwd_send_buff->data, pipe_msg_size, stage_id-1);
-        }
-        CCUTILS_MPI_TIMER_STOP(pp_comm)
-        
+            CCUTILS_MPI_TIMER_STOP(pp_comm)
+        }        
         // Expert parallel communication during backward pass
         // All-to-All for gradient routing back through experts
         for(int ep_iter = 0; ep_iter < (2*layers_per_stage); ep_iter++){
@@ -204,24 +210,47 @@ int run_data_pipe_expert_parallel(
     return 0;
 }
 
+#define REQUIRED_ARGS                                                                       \
+    REQUIRED_STRING_ARG(model_name, "model", "Name of the model to use")                    \
+    REQUIRED_INT_ARG(num_stages, "num_stages", "Number of pipeline stages")                 \
+    REQUIRED_INT_ARG(num_microbatches, "num_microbatches", "Number of microbatches")        \
+    REQUIRED_INT_ARG(num_expert_shards, "num_expert_shards", "Number of expert parallel shards (number of devices per stage that share experts)") \
+    REQUIRED_STRING_ARG(base_path, "base_path", "Base path for the repository")  
+    
+static char default_devices[] = "";
+
+#define OPTIONAL_ARGS                                                                           \
+    OPTIONAL_INT_ARG(warmup, WARM_UP, "-w", "warmups", "Number of warm-up iterations")          \
+    OPTIONAL_INT_ARG(runs, RUNS, "-r", "runs", "Number of iterations to run")                   \
+    OPTIONAL_STRING_ARG(devices, default_devices, "-d", "devices", "Comma-separated list of devices")  
+
+#define BOOLEAN_ARGS \
+    BOOLEAN_ARG(help, "-h", "Show help")
+
+#include <ccutils/easyargs.hpp>
+
+
 int main(int argc, char* argv[]) {
     int rank, world_size;
     int num_stage;
     int num_microbatches;
     int num_expert_shards;  // Number of expert parallel groups
     
-    if(argc < 5){
-        std::cout << "Usage: mpirun -n <world_size> ./hybrid_3d_moe <model_name> <num_stages> <num_microbatches> <num_expert_shards> <base_path>\n";
-        return -1;
+    args_t args = make_default_args();
+    if (!parse_args(argc, argv, &args) || args.help) {
+        print_help(argv[0]);
+        return 1;
     }
     
-    std::string model_name = argv[1];
-    num_stage = std::stoi(argv[2]);
-    num_microbatches = std::stoi(argv[3]);
-    num_expert_shards = std::stoi(argv[4]);
+    std::string model_name = args.model_name;
+    num_stage = args.num_stages;
+    num_microbatches = args.num_microbatches;
+    num_expert_shards = args.num_expert_shards;
+    uint warmup = args.warmup;
+    uint runs = args.runs;
     
     // --- Construct model stats file path ---
-    fs::path repo_path = get_dnnproxy_base_path(argc, argv, rank);
+    fs::path repo_path = get_dnnproxy_base_path(args.base_path);
     fs::path file_path = repo_path / "model_stats" / (model_name + ".txt");
     std::string strip_model_name = model_name.substr(0, model_name.find_last_of('_'));
     strip_model_name = strip_model_name.substr(0, strip_model_name.find_last_of('_'));
@@ -332,15 +361,7 @@ int main(int argc, char* argv[]) {
     uint64_t expert_size = (expert_params / num_stage) / num_expert_shards;
     uint64_t dp_allreduce_size = non_expert_size + expert_size;
     
-#if defined(PROXY_ENABLE_CUDA)
-    int num_gpus;
-    cudaGetDeviceCount(&num_gpus);
-    CCUTILS_CUDA_CHECK(cudaSetDevice(rank % num_gpus));
-#elif defined(PROXY_ENABLE_HIP)
-    int num_gpus;
-    hipGetDeviceCount(&num_gpus);
-    CCUTILS_HIP_CHECK(hipSetDevice(rank % num_gpus));
-#endif
+    int my_device = set_local_device(MPI_COMM_WORLD, args.devices);
 
 #ifdef PROXY_ENABLE_CCL
     // Initialize CCL for DP communicator
@@ -465,7 +486,7 @@ int main(int argc, char* argv[]) {
     
     // Warmup
     std::vector<float> energy_vals;
-    for(int wmp = 0; wmp < WARM_UP; wmp++){
+    for(int wmp = 0; wmp < warmup; wmp++){
         run_data_pipe_expert_parallel(num_microbatches, stage_id, num_stage, layers_per_stage, pipe_msg_size,
                               fwd_rt_per_microbatch, bwd_rt_per_microbatch,
                               grad_ptr, sum_grad_ptr, dp_allreduce_size, non_expert_size,
@@ -473,12 +494,6 @@ int main(int argc, char* argv[]) {
                               ep_send_buffer, ep_recv_buffer, ep_alltoall_size, num_experts,
                               dp_communicator, pp_communicator, ep_communicator);
     }
-    
-    #ifdef PROXY_ENERGY_PROFILING
-    std::string sub_folder = model_name + "_dp_pp_ep_stages_" + std::to_string(num_stage) + 
-                            "_ep_" + std::to_string(num_expert_shards) + "/";
-    std::string base_folder_path = "logs_" + std::to_string(world_size) + "/";
-    #endif
 
     #ifdef PROXY_LOOP
     while(true){
@@ -490,16 +505,13 @@ int main(int argc, char* argv[]) {
                               dp_communicator, pp_communicator, ep_communicator);
     }
     #else
-    for(int iter = 0; iter < RUNS; iter++){
-        #ifdef PROXY_ENERGY_PROFILING
-        std::string power_file = base_folder_path + sub_folder + "power_dp_pp_ep_rank_" + 
-                                std::to_string(rank) + "_run_" + std::to_string(iter) + ".csv";
-        PowerProfiler powerProf(rank % num_gpus, POWER_SAMPLING_RATE_MS, power_file);
-        #endif
+    // clear vectors before timed runs
+    __timer_vals_pp_comm.clear();
+    __timer_vals_dp_comm.clear();
+    __timer_vals_ep_comm.clear();
+    __timer_vals_dp_ep_comm.clear();
+    for(int iter = 0; iter < runs; iter++){
         CCUTILS_MPI_TIMER_START(runtime)
-        #ifdef PROXY_ENERGY_PROFILING
-        powerProf.start();
-        #endif
         
         run_data_pipe_expert_parallel(num_microbatches, stage_id, num_stage, layers_per_stage, pipe_msg_size,
                               fwd_rt_per_microbatch, bwd_rt_per_microbatch,
@@ -508,11 +520,6 @@ int main(int argc, char* argv[]) {
                               ep_send_buffer, ep_recv_buffer, ep_alltoall_size, num_experts,
                               dp_communicator, pp_communicator, ep_communicator);
         
-        #ifdef PROXY_ENERGY_PROFILING
-        powerProf.stop();
-        float energy_consumed = powerProf.get_device_energy();
-        energy_vals.push_back(energy_consumed);
-        #endif
         CCUTILS_MPI_TIMER_STOP(runtime)
     }
     
@@ -544,12 +551,6 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "backend", dp_communicator->get_name())
     
     CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "runtimes", __timer_vals_runtime);
-    
-    __timer_vals_pp_comm.erase(__timer_vals_pp_comm.begin(), __timer_vals_pp_comm.begin() + WARM_UP);
-    __timer_vals_dp_comm.erase(__timer_vals_dp_comm.begin(), __timer_vals_dp_comm.begin() + WARM_UP);
-    __timer_vals_ep_comm.erase(__timer_vals_ep_comm.begin(), __timer_vals_ep_comm.begin() + WARM_UP);
-    __timer_vals_dp_ep_comm.erase(__timer_vals_dp_ep_comm.begin(), __timer_vals_dp_ep_comm.begin() + WARM_UP);
-    
     CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "pp_comm_time", __timer_vals_pp_comm);
     CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "dp_comm_time", __timer_vals_dp_comm);
     CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "ep_comm_time", __timer_vals_ep_comm);
@@ -558,9 +559,6 @@ int main(int argc, char* argv[]) {
     CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "stage_id", stage_id);
     CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "ep_id", ep_id);
     CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "dp_id", dp_id);
-    #ifdef PROXY_ENERGY_PROFILING
-    CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "energy_consumed", energy_vals);
-    #endif
     CCUTILS_MPI_SECTION_END(dp_pp_ep);
     #endif
     

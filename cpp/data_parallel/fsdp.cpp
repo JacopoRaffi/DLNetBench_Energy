@@ -70,8 +70,8 @@ CCUTILS_MPI_TIMER_DEF(barrier)
 CCUTILS_MPI_TIMER_DEF(runtime)
 
 //default values
-#define WARM_UP 8
-#define RUNS 10
+#define WARM_UP 4
+#define RUNS 1
 #define POWER_SAMPLING_RATE_MS 5
 
 void run_fsdp(Tensor<_FLOAT, device>** shard_params,
@@ -166,6 +166,24 @@ void run_fsdp(Tensor<_FLOAT, device>** shard_params,
     }
 }
 
+#define REQUIRED_ARGS                                                                       \
+    REQUIRED_STRING_ARG(model_name, "model", "Name of the model to use")                    \
+    REQUIRED_INT_ARG(num_units, "num_units", "Number of parameter units")                   \
+    REQUIRED_INT_ARG(sharding_factor, "sharding_factor", "Sharding factor for each unit")   \
+    REQUIRED_STRING_ARG(base_path, "base_path", "Base path for the repository")  
+    
+static char default_devices[] = "";
+
+#define OPTIONAL_ARGS                                                                           \
+    OPTIONAL_INT_ARG(warmup, WARM_UP, "-w", "warmups", "Number of warm-up iterations")          \
+    OPTIONAL_INT_ARG(runs, RUNS, "-r", "runs", "Number of iterations to run")                   \
+    OPTIONAL_STRING_ARG(devices, default_devices, "-d", "devices", "Comma-separated list of devices")  
+
+#define BOOLEAN_ARGS \
+    BOOLEAN_ARG(help, "-h", "Show help")
+
+#include <ccutils/easyargs.hpp>
+
 int main(int argc, char* argv[]) {
 #ifdef PROXY_ENABLE_ONECCL
     int provided;
@@ -186,15 +204,23 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
-    std::string model_name = argv[1];
-    uint num_units = std::stoi(argv[2]);
-    uint sharding_factor = std::stoi(argv[3]);
+    args_t args = make_default_args();
+
+    if (!parse_args(argc, argv, &args) || args.help) {
+        print_help(argv[0]);
+        return 1;
+    }
+
+    std::string model_name = args.model_name;
+    uint num_units = args.num_units;
+    uint sharding_factor = args.sharding_factor;
+    uint runs = args.runs;
+    uint warmup = args.warmup;
 
     assert(world_size % sharding_factor == 0);
-    //FIXME: assert num_layers % num_units == 0 when num_layers info is available
 
      // --- Get DNNProxy base path ---
-    fs::path repo_path = get_dnnproxy_base_path(argc, argv, rank);
+    fs::path repo_path = get_dnnproxy_base_path(args.base_path);
     if (repo_path.empty()) {
         MPI_Finalize();
         return -1;  // DNNProxy not found
@@ -241,15 +267,7 @@ int main(int argc, char* argv[]) {
     MPI_Comm allreduce_comm;
     MPI_Comm_split(MPI_COMM_WORLD, shard_index_color, rank, &allreduce_comm);
 
-#if defined(PROXY_ENABLE_CUDA)
-    int num_gpus;
-    cudaGetDeviceCount(&num_gpus);
-    CCUTILS_CUDA_CHECK(cudaSetDevice(rank % num_gpus));
-#elif defined(PROXY_ENABLE_HIP)
-    int num_gpus;
-    hipGetDeviceCount(&num_gpus);
-    CCUTILS_HIP_CHECK(hipSetDevice(rank % num_gpus));
-#endif
+    int my_device = set_local_device(MPI_COMM_WORLD, args.devices);
     
 #ifdef PROXY_ENABLE_CCL 
     ncclUniqueId id;
@@ -340,7 +358,7 @@ int main(int argc, char* argv[]) {
     float fwd_rt_whole_unit = (float)fwd_rt_whole_model / num_units;
     float bwd_rt_whole_unit = (float)bwd_rt_whole_model / num_units;
 
-    for(int i = 0; i < WARM_UP; i++)
+    for(int i = 0; i < warmup; i++)
         run_fsdp(shard_params, allgather_buf, allreduce_params,
                  fwd_rt_whole_unit, bwd_rt_whole_unit,
                  num_units, sharding_factor, max_params_per_shard,
@@ -355,8 +373,15 @@ int main(int argc, char* argv[]) {
                  num_replicas, unit_comm_proxy, allreduce_comm_proxy);
     }
     #else
-    // std::vector<float> energy_vals;
-    for(int i = 0; i < RUNS; i++){ //TODO: add energy profiling
+    // clear vectors for timers
+    __timer_vals_runtime.clear();
+    __timer_vals_allgather.clear();
+    __timer_vals_allgather_wait_fwd.clear();
+    __timer_vals_allgather_wait_bwd.clear();
+    __timer_vals_reduce_scatter.clear();
+    __timer_vals_barrier.clear();
+
+    for(int i = 0; i < runs; i++){
         CCUTILS_MPI_TIMER_START(runtime);
         run_fsdp(shard_params, allgather_buf, allreduce_params,
                  fwd_rt_whole_unit, bwd_rt_whole_unit,
@@ -369,16 +394,6 @@ int main(int argc, char* argv[]) {
 	char (*host_names)[MPI_MAX_PROCESSOR_NAME];
 	int namelen,bytes,n,color;
 	MPI_Get_processor_name(host_name,&namelen);
-
-    //remove the warm-up timings
-    __timer_vals_allgather.erase(__timer_vals_allgather.begin(), __timer_vals_allgather.begin() + WARM_UP);
-    __timer_vals_allgather_wait_fwd.erase(__timer_vals_allgather_wait_fwd.begin(), __timer_vals_allgather_wait_fwd.begin() + WARM_UP * (num_units - 1));
-    __timer_vals_allgather_wait_bwd.erase(__timer_vals_allgather_wait_bwd.begin(), __timer_vals_allgather_wait_bwd.begin() + WARM_UP * (num_units - 1));
-    __timer_vals_reduce_scatter.erase(__timer_vals_reduce_scatter.begin(), __timer_vals_reduce_scatter.begin() + num_units * WARM_UP);
-
-    if(num_replicas > 1){
-        __timer_vals_barrier.erase(__timer_vals_barrier.begin(), __timer_vals_barrier.begin() + WARM_UP);
-    }
 
     // Use CCUTILS sections to print
     CCUTILS_MPI_SECTION_DEF(fsdp, "FSDP metrics")

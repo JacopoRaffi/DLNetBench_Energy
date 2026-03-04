@@ -41,36 +41,80 @@ namespace fs = std::filesystem;
  * @return The fs::path to the DNNProxy folder.
  * @throws std::runtime_error if the folder does not exist or HOME is not set.
  */
-fs::path get_dnnproxy_base_path(int argc, char* argv[], int rank) {
+fs::path get_dnnproxy_base_path(char* input_path) {
     fs::path base_path;
-
     fs::path cwd;
     try {
         cwd = fs::current_path();
     } catch (const fs::filesystem_error& e) {
-        if (rank == 0)
-            std::cerr << "Error: cannot determine current working directory.\n";
-        throw;
+        std::cerr << "Error: cannot determine current working directory.\n";
     }
 
-    // If the user provided a base path as the last argument, use it relative to CWD
-    if (argc > 1) {
-        base_path = cwd / argv[argc - 1];
-    } else {
-        // Default fallback
-        base_path = cwd / "DNNProxy";
-    }
-
+    base_path = cwd / input_path;
     if (!fs::exists(base_path) || !fs::is_directory(base_path)) {
-        if (rank == 0)
-            std::cerr << "Error: DNNProxy folder does not exist at: "
-                      << base_path << "\n";
+        std::cerr << "Error: DNNProxy folder does not exist at: " << base_path << "\n";
         throw std::runtime_error("DNNProxy folder not found");
     }
-
     return base_path;
 }
 
+// helper per parsare device list passata come stringa "0,1,2"
+std::vector<int> parse_devices(const std::string& s) {
+    std::vector<int> result;
+    if (s.empty()) return result;
+    std::stringstream ss(s);
+    std::string item;
+    while (std::getline(ss, item, ',')) {
+        result.push_back(std::stoi(item));
+    }
+    return result;
+}
+
+// function to set the local device for each MPI process based on the local rank and the provided device list (if any)
+inline int set_local_device(MPI_Comm global_comm, const char* devices_str){
+    MPI_Comm local_comm;
+    MPI_Comm_split_type(global_comm, MPI_COMM_TYPE_SHARED, 0, MPI_INFO_NULL, &local_comm);
+
+    int local_rank = 0;
+    int local_size = 0;
+    MPI_Comm_rank(local_comm, &local_rank);
+    MPI_Comm_size(local_comm, &local_size);
+
+    std::vector<int> device_list;
+
+    if (devices_str && std::string(devices_str).size() > 0) {
+        device_list = parse_devices(devices_str);
+    } else {
+#if defined(PROXY_ENABLE_CUDA)
+        int num_gpus = 0;
+        cudaGetDeviceCount(&num_gpus);
+        if (num_gpus <= 0) throw std::runtime_error("No CUDA devices available");
+        for (int i = 0; i < num_gpus; i++) device_list.push_back(i);
+
+#elif defined(PROXY_ENABLE_HIP)
+        int num_gpus = 0;
+        hipGetDeviceCount(&num_gpus);
+        if (num_gpus <= 0) throw std::runtime_error("No HIP devices available");
+        for (int i = 0; i < num_gpus; i++) device_list.push_back(i);
+#else
+        return 0; // CPU case, no device to set
+#endif
+    }
+
+    assert(local_size <= static_cast<int>(device_list.size()));
+    int device_index = device_list[local_rank];
+
+    // --- set device ---
+#if defined(PROXY_ENABLE_CUDA)
+    CCUTILS_CUDA_CHECK(cudaSetDevice(device_index));
+#elif defined(PROXY_ENABLE_HIP)
+    CCUTILS_HIP_CHECK(hipSetDevice(device_index));
+#endif
+
+    MPI_Comm_free(&local_comm);
+
+    return device_index;
+}
 
 /**
  * @brief Computes the average and standard deviation of a list of message sizes.

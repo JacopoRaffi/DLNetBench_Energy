@@ -68,8 +68,8 @@ Proxy_CommType world_comm;
 
 // Default values
 #define NUM_B 10
-#define WARM_UP 8
-#define RUNS 10
+#define WARM_UP 4
+#define RUNS 1
 #define POWER_SAMPLING_RATE_MS 5
 
 CCUTILS_MPI_TIMER_DEF(runtime)
@@ -111,27 +111,49 @@ int run_data_parallel(Tensor<_FLOAT, device>** grad_ptrs, Tensor<_FLOAT, device>
     return 0;
 }
 
+#define REQUIRED_ARGS                                                            \
+    REQUIRED_STRING_ARG(model_name, "model", "Name of the model to use")         \
+    REQUIRED_INT_ARG(num_buckets, "num_buckets", "Number of parameter buckets")  \
+    REQUIRED_STRING_ARG(base_path, "base_path", "Base path for the repository")  
+    
+static char default_devices[] = "";
+
+#define OPTIONAL_ARGS                                                                           \
+    OPTIONAL_INT_ARG(warmup, WARM_UP, "-w", "warmups", "Number of warm-up iterations")          \
+    OPTIONAL_INT_ARG(runs, RUNS, "-r", "runs", "Number of iterations to run")                   \
+    OPTIONAL_STRING_ARG(devices, default_devices, "-d", "devices", "Comma-separated list of devices")  
+
+#define BOOLEAN_ARGS \
+    BOOLEAN_ARG(help, "-h", "Show help")
+
+#include <ccutils/easyargs.hpp>
+
+
 int main(int argc, char* argv[]) {
     int rank, world_size;
 
-    int num_buckets = NUM_B;
-    if(argc < 4){
-        std::cout << "Usage: mpirun -n <world_size> ./dp <model_name> <num_buckets> <base_path>\n";
-        return -1;
+    args_t args = make_default_args();
+
+    if (!parse_args(argc, argv, &args) || args.help) {
+        print_help(argv[0]);
+        return 1;
     }
 
-    std::string model_name = argv[1];
-    if(argc > 2){
-        num_buckets = std::stoi(argv[2]);
-    }
+    int num_buckets = NUM_B;
+
+    std::string model_name = args.model_name;
+    num_buckets = args.num_buckets;
 
     // --- Construct model stats file path ---
-    fs::path repo_path = get_dnnproxy_base_path(argc, argv, rank);
+    fs::path repo_path = get_dnnproxy_base_path(args.base_path);
     fs::path file_path = repo_path / "model_stats" / (model_name + ".txt");
     if (!fs::exists(file_path)) {
         std::cerr << "Error: model stats file does not exist: " << file_path << "\n";
         return -1;
     }
+
+    uint64_t runs = args.runs;
+    uint64_t warmup = args.warmup;
 
     std::map<std::string, uint64_t> model_stats = get_model_stats(file_path); // get model stats from file
     uint64_t fwd_rt_whole_model = model_stats["avgForwardTime"]; // in us
@@ -158,15 +180,7 @@ int main(int argc, char* argv[]) {
     
     print_topology_graph(MPI_COMM_WORLD);
     
-#if defined(PROXY_ENABLE_CUDA)
-    int num_gpus;
-    cudaGetDeviceCount(&num_gpus);
-    CCUTILS_CUDA_CHECK(cudaSetDevice(rank % num_gpus));
-#elif defined(PROXY_ENABLE_HIP)
-    int num_gpus;
-    hipGetDeviceCount(&num_gpus);
-    CCUTILS_HIP_CHECK(hipSetDevice(rank % num_gpus));
-#endif
+    int my_device = set_local_device(MPI_COMM_WORLD, args.devices);
 
     #ifdef PROXY_ENABLE_CCL
     ncclUniqueId id;
@@ -224,7 +238,7 @@ int main(int argc, char* argv[]) {
 
     //warmup
     std::vector<float> energy_vals;
-    for(int wmp = 0; wmp < WARM_UP; wmp++){
+    for(int wmp = 0; wmp < warmup; wmp++){
         run_data_parallel(grad_ptrs, sum_grad_ptrs, num_buckets, params_per_bucket,
                          fwd_rt_whole_model, bwd_rt_per_B, communicator);
     }
@@ -247,7 +261,7 @@ int main(int argc, char* argv[]) {
                          fwd_rt_whole_model, bwd_rt_per_B, communicator);
     }
     #else
-    for(int iter = 0; iter < RUNS; iter++){        
+    for(int iter = 0; iter < runs; iter++){        
 #ifdef PROXY_ENERGY_PROFILING
         std::string power_file = base_folder_path + sub_folder + "power_dp_rank_" + std::to_string(rank) + "run_" + std::to_string(iter) + ".csv";
         PowerProfiler powerProf(rank % num_gpus, POWER_SAMPLING_RATE_MS, power_file);
