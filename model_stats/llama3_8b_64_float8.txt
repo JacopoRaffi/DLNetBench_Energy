@@ -1,6 +1,7 @@
 Forward_Flops:8444249301319680
 Backward_Flops:16888498602639360
 Model_Size:8030261248
+Non_Expert_size:0
 Average_Forward_Time (us):1876499.84
 Average_Backward_Time (us):3752999.69
 Batch_size:64
