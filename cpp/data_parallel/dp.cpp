@@ -21,8 +21,6 @@
 
 #include "../netcommunicators.hpp"
 
-#define NVML
-
 namespace fs = std::filesystem;
 using nlohmann::json;
 
@@ -254,6 +252,8 @@ int main(int argc, char* argv[]) {
                          fwd_rt_whole_model, bwd_rt_per_B, communicator);
     }
     #else
+    // clear barrier times
+    __timer_vals_barrier.clear();
     for(int iter = 0; iter < runs; iter++){        
         CCUTILS_MPI_TIMER_START(runtime)
         run_data_parallel(grad_ptrs, sum_grad_ptrs, num_buckets, params_per_bucket,
