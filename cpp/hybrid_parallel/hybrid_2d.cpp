@@ -282,7 +282,7 @@ int main(int argc, char* argv[]) {
     int stage_id = pp_rank; // stage ID is the rank in PP communicator
 
     int my_device = set_local_device(MPI_COMM_WORLD, args.devices);
-    CCUTILS_MPI_ALL_PRINT(fprintf(fp, "Rank %d using device %s\n", rank, my_device);)
+    CCUTILS_MPI_ALL_PRINT(fprintf(fp, "Using device %d\n", my_device);)
 
 #ifdef PROXY_ENABLE_CCL
     // Initialize CCL for DP communicator

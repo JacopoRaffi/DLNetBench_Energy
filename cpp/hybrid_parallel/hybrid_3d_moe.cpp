@@ -363,7 +363,7 @@ int main(int argc, char* argv[]) {
     uint64_t dp_allreduce_size = non_expert_size + expert_size;
     
     int my_device = set_local_device(MPI_COMM_WORLD, args.devices);
-    CCUTILS_MPI_ALL_PRINT(fprintf(fp, "Rank %d using device %s\n", rank, my_device);)
+    CCUTILS_MPI_ALL_PRINT(fprintf(fp, "Using device %d\n", my_device);)
 
 #ifdef PROXY_ENABLE_CCL
     // Initialize CCL for DP communicator
