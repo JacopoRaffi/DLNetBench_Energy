@@ -440,6 +440,13 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "reducescatter_msg_size_bytes", reducescatter_msg_size)
     if (num_replicas > 1)
         CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "allreduce_msg_size_bytes", allreduce_msg_size)
+    
+    // compute throughput per runtime (samples/s)
+    std::vector<float> throughputs;
+    for(float rt : __timer_vals_runtime){
+        float throughput = (local_batch_size * world_size) / (rt / 1e6); // convert rt to seconds
+        throughputs.push_back(throughput);
+    }
 
     CCUTILS_MPI_SECTION_END(fsdp)
     #endif

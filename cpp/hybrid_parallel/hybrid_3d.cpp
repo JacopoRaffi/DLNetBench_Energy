@@ -539,7 +539,14 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "device", (device == Device::CPU) ? "CPU" : "GPU")
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "backend", dp_communicator->get_name())
     
-    CCUTILS_SECTION_JSON_PUT(dp_pp_tp, "runtimes", __timer_vals_runtime);    
+    CCUTILS_SECTION_JSON_PUT(dp_pp_tp, "runtimes", __timer_vals_runtime);
+    //compute trhoughput per runtime (samples/s)
+    std::vector<float> throughputs;
+    for(float rt : __timer_vals_runtime){
+        float throughput = (local_batch_size * dp_size) / (rt / 1e6); // convert rt to seconds
+        throughputs.push_back(throughput);
+    }
+    CCUTILS_SECTION_JSON_PUT(dp_pp_tp, "throughputs", throughputs);    
     CCUTILS_SECTION_JSON_PUT(dp_pp_tp, "pp_comm_time", __timer_vals_pp_comm);
     CCUTILS_SECTION_JSON_PUT(dp_pp_tp, "dp_comm_time", __timer_vals_dp_comm);
     CCUTILS_SECTION_JSON_PUT(dp_pp_tp, "tp_comm_time", __timer_vals_tp_comm);

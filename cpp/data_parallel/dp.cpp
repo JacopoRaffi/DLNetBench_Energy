@@ -290,6 +290,14 @@ int main(int argc, char* argv[]) {
     //erase warm-up elemements
     CCUTILS_SECTION_JSON_PUT(dp, "runtimes", __timer_vals_runtime);
     CCUTILS_SECTION_JSON_PUT(dp, "barrier_time", __timer_vals_barrier);
+    // compute throughput per runtime (samples/s)
+    std::vector<float> throughputs;
+    for(float rt : __timer_vals_runtime){
+        float throughput = (local_batch_size * world_size) / (rt / 1e6); // convert rt to seconds
+        throughputs.push_back(throughput);
+    }
+
+    CCUTILS_SECTION_JSON_PUT(dp, "throughputs", throughputs);
     CCUTILS_SECTION_JSON_PUT(dp, "hostname", host_name);
 
     CCUTILS_MPI_SECTION_END(dp);

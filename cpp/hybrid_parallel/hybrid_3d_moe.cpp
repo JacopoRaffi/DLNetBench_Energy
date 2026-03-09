@@ -572,7 +572,7 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "embedded_dim", embedded_dim)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "samples_per_microbatch", samples_per_microbatch)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "local_batch_size", local_batch_size)
-    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "global_batch_size", dp_size * local_batch_size)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "global_batch_size", dp_size * num_expert_shards * local_batch_size)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "world_size", world_size)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "dp_size", dp_size)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "fwd_rt_per_microbatch", fwd_rt_per_microbatch)
@@ -585,6 +585,13 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "backend", dp_communicator->get_name())
     
     CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "runtimes", __timer_vals_runtime);
+    //compute trhoughputs based on runtimes and batch size
+    std::vector<float> throughputs;
+    for(float rt : __timer_vals_runtime){
+        float throughput = (local_batch_size * dp_size * num_expert_shards) / (rt); // samples per second
+        throughputs.push_back(throughput);
+    }
+    CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "throughputs", throughputs);
     CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "pp_comm_time", __timer_vals_pp_comm);
     CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "dp_comm_time", __timer_vals_dp_comm);
     CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "ep_comm_time", __timer_vals_ep_comm);

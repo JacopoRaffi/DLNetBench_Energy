@@ -462,6 +462,13 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp, "backend", dp_communicator->get_name())
     
     CCUTILS_SECTION_JSON_PUT(dp_pp, "runtimes", __timer_vals_runtime);
+    // compute throughput per runtime (samples/s)
+    std::vector<float> throughputs;
+    for(float rt : __timer_vals_runtime){
+        float throughput = (local_batch_size * dp_size) / (rt / 1e6); // convert rt to seconds
+        throughputs.push_back(throughput);
+    }
+    CCUTILS_SECTION_JSON_PUT(dp_pp, "throughputs", throughputs);
     CCUTILS_SECTION_JSON_PUT(dp_pp, "pp_comm_time", __timer_vals_pp_comm);
     CCUTILS_SECTION_JSON_PUT(dp_pp, "dp_comm_time", __timer_vals_dp_comm);
     CCUTILS_SECTION_JSON_PUT(dp_pp, "hostname", host_name);
