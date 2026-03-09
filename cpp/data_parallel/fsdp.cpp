@@ -444,7 +444,7 @@ int main(int argc, char* argv[]) {
     // compute throughput per runtime (samples/s)
     std::vector<float> throughputs;
     for(float rt : __timer_vals_runtime){
-        float throughput = (local_batch_size * world_size) / (rt / 1e6); // convert rt to seconds
+        float throughput = (local_batch_size * world_size) / rt; // convert rt to seconds
         throughputs.push_back(throughput);
     }
 

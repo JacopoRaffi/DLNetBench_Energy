@@ -588,7 +588,7 @@ int main(int argc, char* argv[]) {
     //compute trhoughputs based on runtimes and batch size
     std::vector<float> throughputs;
     for(float rt : __timer_vals_runtime){
-        float throughput = (local_batch_size * dp_size * num_expert_shards) / (rt); // samples per second
+        float throughput = (local_batch_size * dp_size * num_expert_shards) / rt; // samples per second
         throughputs.push_back(throughput);
     }
     CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "throughputs", throughputs);
