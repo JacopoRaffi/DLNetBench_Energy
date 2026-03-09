@@ -405,6 +405,13 @@ int main(int argc, char* argv[]) {
     // Use CCUTILS sections to print
     CCUTILS_MPI_SECTION_DEF(fsdp, "FSDP metrics")
     CCUTILS_SECTION_JSON_PUT(fsdp, "runtime", __timer_vals_runtime)
+    // compute throughput per runtime (samples/s)
+    std::vector<float> throughputs;
+    for(float rt : __timer_vals_runtime){
+        float throughput = (local_batch_size * world_size) / rt; // convert rt to seconds
+        throughputs.push_back(throughput);
+    }
+    CCUTILS_SECTION_JSON_PUT(fsdp, "throughputs", throughputs)
     CCUTILS_SECTION_JSON_PUT(fsdp, "allgather", __timer_vals_allgather)
     CCUTILS_SECTION_JSON_PUT(fsdp, "allgather_wait_fwd", __timer_vals_allgather_wait_fwd)
     CCUTILS_SECTION_JSON_PUT(fsdp, "allgather_wait_bwd", __timer_vals_allgather_wait_bwd)
@@ -440,13 +447,6 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "reducescatter_msg_size_bytes", reducescatter_msg_size)
     if (num_replicas > 1)
         CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "allreduce_msg_size_bytes", allreduce_msg_size)
-    
-    // compute throughput per runtime (samples/s)
-    std::vector<float> throughputs;
-    for(float rt : __timer_vals_runtime){
-        float throughput = (local_batch_size * world_size) / rt; // convert rt to seconds
-        throughputs.push_back(throughput);
-    }
 
     CCUTILS_MPI_SECTION_END(fsdp)
     #endif
