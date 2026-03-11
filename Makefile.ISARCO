@@ -1,0 +1,31 @@
+CXX := nvcc
+
+# -- System paths --
+
+# -- System paths --
+CUDA_HOME := "/opt/nvidia/hpc_sdk/Linux_x86_64/26.1/cuda/13.1"
+MPI_HOME  := "/opt/nvidia/hpc_sdk/Linux_x86_64/26.1/comm_libs/13.1/hpcx/hpcx-2.25.1/ompi"
+NCCL_HOME := "/opt/nvidia/hpc_sdk/Linux_x86_64/26.1/comm_libs/nccl"
+
+# OpenMPI bundled with NVHPC is CUDA-aware
+MPICUDA_HOME := $(MPI_HOME)
+
+# -------------------------------------------------------
+# Config: nccl
+#   CUDA buffers + NCCL collectives
+# -------------------------------------------------------
+CONFIGS += nccl
+BACKEND_nccl := nccl
+
+# -------------------------------------------------------
+# Config: mpi_gpu_cuda
+#   CUDA buffers, MPI collectives only (no NCCL)
+# -------------------------------------------------------
+CONFIGS += mpi_gpu_cuda
+BACKEND_mpi_gpu_cuda := mpi_gpu_cuda
+
+# -------------------------------------------------------
+# Includes
+# -------------------------------------------------------
+include Makefile.flags.mk
+include Makefile.common
