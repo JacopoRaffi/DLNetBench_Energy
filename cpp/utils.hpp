@@ -32,6 +32,31 @@
 using json = nlohmann::json;
 namespace fs = std::filesystem;
 
+
+#include <signal.h>
+#include <atomic>
+
+
+volatile sig_atomic_t end = 0;
+
+static void signal_handler(int sig){
+    if (sig == SIGINT || sig == SIGQUIT || sig == SIGTERM || sig == SIGUSR1)
+        end = 1;
+}
+
+void install_signal_handlers(void) {
+    struct sigaction s;
+    memset(&s, 0, sizeof(s));
+
+    s.sa_handler = signal_handler;
+    sigfillset(&s.sa_mask); // block all signals while handler runs
+
+    if (sigaction(SIGINT,  &s, NULL) < 0) { perror("sigaction SIGINT");  exit(EXIT_FAILURE); }
+    if (sigaction(SIGQUIT, &s, NULL) < 0) { perror("sigaction SIGQUIT"); exit(EXIT_FAILURE); }
+    if (sigaction(SIGTERM, &s, NULL) < 0) { perror("sigaction SIGTERM"); exit(EXIT_FAILURE); }
+    if (sigaction(SIGUSR1, &s, NULL) < 0) { perror("sigaction SIGUSR1"); exit(EXIT_FAILURE); }
+}
+
 /**
  * Get the base path of the DNNProxy folder.
  * 

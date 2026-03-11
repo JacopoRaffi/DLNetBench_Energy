@@ -520,6 +520,7 @@ int main(int argc, char* argv[]) {
     __timer_vals_dp_comm.clear();
     __timer_vals_ep_comm.clear();
     __timer_vals_dp_ep_comm.clear();
+    install_signal_handlers();
     for(int iter = 0; iter < runs; iter++){
         CCUTILS_MPI_TIMER_START(runtime)
         
@@ -556,6 +557,21 @@ int main(int argc, char* argv[]) {
             __timer_vals_pp_comm = std::move(merged_pp);
         }
     }
+
+    int executed_runs = __timer_vals_runtime.size();
+
+    if (__timer_vals_pp_comm.size() > (size_t)executed_runs * num_microbatches * 2)
+        __timer_vals_pp_comm.resize((size_t)executed_runs * num_microbatches * 2);
+
+    if (__timer_vals_dp_comm.size() > (size_t)executed_runs)
+        __timer_vals_dp_comm.resize((size_t)executed_runs);
+
+    // 2*layers_per_stage alltoalls per microbatch x 2 passes (fwd + bwd)
+    if (__timer_vals_ep_comm.size() > (size_t)executed_runs * num_microbatches * 2 * layers_per_stage * 2)
+        __timer_vals_ep_comm.resize((size_t)executed_runs * num_microbatches * 2 * layers_per_stage * 2);
+
+    if (__timer_vals_dp_ep_comm.size() > (size_t)executed_runs)
+        __timer_vals_dp_ep_comm.resize((size_t)executed_runs);
     
     char host_name[MPI_MAX_PROCESSOR_NAME];
     int namelen;

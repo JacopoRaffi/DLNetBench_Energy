@@ -256,12 +256,23 @@ int main(int argc, char* argv[]) {
     #else
     // clear barrier times
     __timer_vals_barrier.clear();
-    for(int iter = 0; iter < runs; iter++){        
+    install_signal_handlers();
+    for(int iter = 0; iter < runs; iter++){
+        if(end){
+            CCUTILS_MPI_PRINT_ONCE(printf("Interrupted at iteration %d. Total iteration completed: %d \n", iter, __timer_vals_runtime.size());)
+            break;
+        }
+
         CCUTILS_MPI_TIMER_START(runtime)
         run_data_parallel(grad_ptrs, sum_grad_ptrs, num_buckets, params_per_bucket,
                          fwd_rt_whole_model, bwd_rt_per_B, communicator);
         CCUTILS_MPI_TIMER_STOP(runtime)
     }
+
+    int executed_runs = __timer_vals_runtime.size();
+    if (__timer_vals_barrier.size() > executed_runs)
+        __timer_vals_barrier.resize(executed_runs);
+    
 
     char host_name[MPI_MAX_PROCESSOR_NAME];
 	char (*host_names)[MPI_MAX_PROCESSOR_NAME];

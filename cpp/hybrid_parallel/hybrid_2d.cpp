@@ -406,7 +406,6 @@ int main(int argc, char* argv[]) {
     __timer_vals_dp_comm.clear();
     for(int iter = 0; iter < runs; iter++){
         CCUTILS_MPI_TIMER_START(runtime)
-        
         run_data_pipe_parallel(num_microbatches, stage_id, num_stage, pipe_msg_size,
                               fwd_rt_per_microbatch, bwd_rt_per_microbatch,
                               grad_ptr, sum_grad_ptr, dp_allreduce_size,
@@ -438,6 +437,14 @@ int main(int argc, char* argv[]) {
             __timer_vals_pp_comm = std::move(merged_pp);
         }
     }
+
+    int executed_runs = __timer_vals_runtime.size();
+
+    if (__timer_vals_pp_comm.size() > (size_t)executed_runs * num_microbatches * 2)
+        __timer_vals_pp_comm.resize((size_t)executed_runs * num_microbatches * 2);
+
+    if (__timer_vals_dp_comm.size() > (size_t)executed_runs)
+        __timer_vals_dp_comm.resize((size_t)executed_runs);
     
     char host_name[MPI_MAX_PROCESSOR_NAME];
     int namelen;

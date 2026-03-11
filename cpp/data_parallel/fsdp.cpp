@@ -388,7 +388,13 @@ int main(int argc, char* argv[]) {
     __timer_vals_reduce_scatter.clear();
     __timer_vals_barrier.clear();
 
+    install_signal_handlers();
     for(int i = 0; i < runs; i++){
+        if(end){
+            CCUTILS_MPI_PRINT_ONCE(printf("Interrupted at iteration %d. Total iteration completed: %d \n", i, __timer_vals_runtime.size());)
+            break;
+        }
+
         CCUTILS_MPI_TIMER_START(runtime);
         run_fsdp(shard_params, allgather_buf, allreduce_params,
                  fwd_rt_whole_unit, bwd_rt_whole_unit,
@@ -396,6 +402,24 @@ int main(int argc, char* argv[]) {
                  num_replicas, unit_comm_proxy, allreduce_comm_proxy);
         CCUTILS_MPI_TIMER_STOP(runtime);
     } 
+
+    int executed_runs = __timer_vals_runtime.size();
+
+    // trim all timer vectors to match completed runs
+    if (__timer_vals_allgather.size() > executed_runs)
+        __timer_vals_allgather.resize(executed_runs);
+
+    if (__timer_vals_allgather_wait_fwd.size() > (size_t)executed_runs * (num_units - 1))
+        __timer_vals_allgather_wait_fwd.resize((size_t)executed_runs * (num_units - 1));
+
+    if (__timer_vals_allgather_wait_bwd.size() > (size_t)executed_runs * (num_units - 1))
+        __timer_vals_allgather_wait_bwd.resize((size_t)executed_runs * (num_units - 1));
+
+    if (__timer_vals_reduce_scatter.size() > (size_t)executed_runs * num_units)
+        __timer_vals_reduce_scatter.resize((size_t)executed_runs * num_units);
+
+    if (num_replicas > 1 && __timer_vals_barrier.size() > executed_runs)
+        __timer_vals_barrier.resize(executed_runs);
 
     char host_name[MPI_MAX_PROCESSOR_NAME];
 	char (*host_names)[MPI_MAX_PROCESSOR_NAME];
