@@ -173,6 +173,7 @@ int main(int argc, char* argv[]) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     CCUTILS_MPI_INIT
     
+    install_signal_handlers();
     print_topology_graph(MPI_COMM_WORLD);
     
     int my_device = set_local_device(MPI_COMM_WORLD, args.devices);
@@ -236,6 +237,10 @@ int main(int argc, char* argv[]) {
     //warmup
     std::vector<float> warmup_times;
     for(int wmp = 0; wmp < warmup; wmp++){
+        if(end){
+            CCUTILS_MPI_PRINT_ONCE(printf("Interrupted during warm-up\n");)
+            break;
+        }
         float start_time = MPI_Wtime();
         run_data_parallel(grad_ptrs, sum_grad_ptrs, num_buckets, params_per_bucket,
                          fwd_rt_whole_model, bwd_rt_per_B, communicator);
@@ -256,7 +261,6 @@ int main(int argc, char* argv[]) {
     #else
     // clear barrier times
     __timer_vals_barrier.clear();
-    install_signal_handlers();
     for(int iter = 0; iter < runs; iter++){
         if(end){
             CCUTILS_MPI_PRINT_ONCE(printf("Interrupted at iteration %d. Total iteration completed: %d \n", iter, __timer_vals_runtime.size());)

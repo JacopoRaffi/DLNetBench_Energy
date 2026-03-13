@@ -190,7 +190,7 @@ int main(int argc, char* argv[]) {
 #endif
 
     CCUTILS_MPI_INIT
-
+    install_signal_handlers();
     int world_size, rank;
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -232,7 +232,6 @@ int main(int argc, char* argv[]) {
     }
 
     print_topology_graph(MPI_COMM_WORLD);
-
     std::map<std::string, uint64_t> model_stats = get_model_stats(file_path.string()); // get model stats from file
 
     uint64_t total_model_size = model_stats["modelSize"];
@@ -358,6 +357,10 @@ int main(int argc, char* argv[]) {
 
     std::vector<float> warmup_times;
     for(int i = 0; i < warmup; i++){
+        if(end){
+            CCUTILS_MPI_PRINT_ONCE(printf("Interrupted during warm-up\n");)
+            break;
+        }
         float start_time = MPI_Wtime();
         run_fsdp(shard_params, allgather_buf, allreduce_params,
                  fwd_rt_whole_unit, bwd_rt_whole_unit,
@@ -388,8 +391,8 @@ int main(int argc, char* argv[]) {
     __timer_vals_reduce_scatter.clear();
     __timer_vals_barrier.clear();
 
-    install_signal_handlers();
     for(int i = 0; i < runs; i++){
+        fprintf(stderr, "iteration %d, end=%d\n", i, end);
         if(end){
             CCUTILS_MPI_PRINT_ONCE(printf("Interrupted at iteration %d. Total iteration completed: %d \n", i, __timer_vals_runtime.size());)
             break;
