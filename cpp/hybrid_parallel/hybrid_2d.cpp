@@ -192,6 +192,18 @@ int main(int argc, char* argv[]) {
     int rank, world_size;
     int num_stage;
     int num_microbatches;
+
+#ifdef PROXY_ENABLE_ONECCL
+    int provided;
+    MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
+#else
+    MPI_Init(&argc, &argv);
+#endif
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    
+    CCUTILS_MPI_INIT
+    install_signal_handlers();
     
     args_t args = make_default_args();
     if (!parse_args(argc, argv, &args) || args.help) {
@@ -249,17 +261,6 @@ int main(int argc, char* argv[]) {
     // DP all-reduce size (gradients for parameters in this stage)
     uint64_t dp_allreduce_size = total_model_size / num_stage;
     
-#ifdef PROXY_ENABLE_ONECCL
-    int provided;
-    MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
-#else
-    MPI_Init(&argc, &argv);
-#endif
-    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    
-    CCUTILS_MPI_INIT
-    install_signal_handlers();
     print_topology_graph(MPI_COMM_WORLD);
 
     assert(num_layers % num_stage == 0);

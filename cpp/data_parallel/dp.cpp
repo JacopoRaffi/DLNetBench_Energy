@@ -125,7 +125,18 @@ static char default_devices[] = "";
 
 
 int main(int argc, char* argv[]) {
+#ifdef PROXY_ENABLE_ONECCL
+   int provided;
+    MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
+#else 
+    MPI_Init(&argc,&argv);
+#endif
     int rank, world_size;
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    CCUTILS_MPI_INIT
+    
+    install_signal_handlers();
 
     args_t args = make_default_args();
 
@@ -163,17 +174,6 @@ int main(int argc, char* argv[]) {
         params_per_bucket[i] = base_params_per_bucket + (i < remainder ? 1 : 0); // distribute remainder across the buckets
     }
 
-#ifdef PROXY_ENABLE_ONECCL
-   int provided;
-    MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
-#else 
-    MPI_Init(&argc,&argv);
-#endif
-    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    CCUTILS_MPI_INIT
-    
-    install_signal_handlers();
     print_topology_graph(MPI_COMM_WORLD);
     
     int my_device = set_local_device(MPI_COMM_WORLD, args.devices);

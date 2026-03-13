@@ -216,6 +216,22 @@ int main(int argc, char* argv[]) {
     int num_stage;
     int num_microbatches;
     int num_tensor_shards;
+
+#ifdef PROXY_ENABLE_ONECCL
+    int provided;
+    MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
+#else
+    MPI_Init(&argc, &argv);
+#endif
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    
+    // Check that world_size = num_stages * num_tensor_shards * dp_size
+    assert(world_size % (num_stage * num_tensor_shards) == 0);
+    int dp_size = world_size / (num_stage * num_tensor_shards);
+    
+    CCUTILS_MPI_INIT
+    install_signal_handlers();
     
     args_t args = make_default_args();
     if (!parse_args(argc, argv, &args) || args.help) {
@@ -259,21 +275,6 @@ int main(int argc, char* argv[]) {
     assert(num_layers % num_stage == 0);
     assert(local_batch_size % num_microbatches == 0);
     
-#ifdef PROXY_ENABLE_ONECCL
-    int provided;
-    MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
-#else
-    MPI_Init(&argc, &argv);
-#endif
-    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    
-    // Check that world_size = num_stages * num_tensor_shards * dp_size
-    assert(world_size % (num_stage * num_tensor_shards) == 0);
-    int dp_size = world_size / (num_stage * num_tensor_shards);
-    
-    CCUTILS_MPI_INIT
-    install_signal_handlers();
     print_topology_graph(MPI_COMM_WORLD);
     
     // Create DP, PP, and TP communicators

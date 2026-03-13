@@ -392,7 +392,6 @@ int main(int argc, char* argv[]) {
     __timer_vals_barrier.clear();
 
     for(int i = 0; i < runs; i++){
-        fprintf(stderr, "iteration %d, end=%d\n", i, end);
         if(end){
             CCUTILS_MPI_PRINT_ONCE(printf("Interrupted at iteration %d. Total iteration completed: %d \n", i, __timer_vals_runtime.size());)
             break;
