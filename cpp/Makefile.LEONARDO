@@ -18,15 +18,15 @@ CXXFLAGS := -O3 --std=c++17 \
             -I$(ENERGY_PROFILER_HOME)/include \
             -I$(CCUTILS_INCLUDE) \
             -DPROXY_ENABLE_CUDA -DPROXY_ENABLE_NCCL \
-	    -DWITH_MPI -DCCUTILS_ENABLE_CUDA -DCCUTILS_ENABLE_MPI #-DNVML
+	    -DWITH_MPI -DCCUTILS_ENABLE_CUDA -DCCUTILS_ENABLE_MPI -DNVML
 
 # Linker flags
 LDFLAGS := -L$(CUDA_HOME)/lib64 \
            -L$(NCCL_HOME)/lib \
-           #-L$(ENERGY_PROFILER_HOME)/lib
+           -L$(ENERGY_PROFILER_HOME)/lib
 
 # Libraries
-LDLIBS := -lcudart -lnccl -lmpi -lpthread -ldl # -lpower_profiler -lnvidia-ml
+LDLIBS := -lcudart -lnccl -lmpi -lpthread -ldl -lpower_profiler -lnvidia-ml
 
 # -------------------------
 # Targets

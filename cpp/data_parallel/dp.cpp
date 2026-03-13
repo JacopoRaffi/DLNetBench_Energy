@@ -21,6 +21,8 @@
 
 #include "../netcommunicators.hpp"
 
+#include <profiler/power_profiler.hpp>
+
 namespace fs = std::filesystem;
 using nlohmann::json;
 
@@ -257,16 +259,25 @@ int main(int argc, char* argv[]) {
     // clear barrier times
     __timer_vals_barrier.clear();
     install_signal_handlers();
+
+    profiler::PowerProfiler power_profiler(my_device, node_id, POWER_SAMPLING_RATE_MS);
+    std::vector<float> dev_energies_mj;
+    std::vector<data_types::power_trace_t> all_traces_per_iter;
     for(int iter = 0; iter < runs; iter++){
         if(end){
             CCUTILS_MPI_PRINT_ONCE(printf("Interrupted at iteration %d. Total iteration completed: %d \n", iter, __timer_vals_runtime.size());)
             break;
         }
-
+        power_profiler.trace_clear();
+        power_profiler.start();
         CCUTILS_MPI_TIMER_START(runtime)
         run_data_parallel(grad_ptrs, sum_grad_ptrs, num_buckets, params_per_bucket,
                          fwd_rt_whole_model, bwd_rt_per_B, communicator);
         CCUTILS_MPI_TIMER_STOP(runtime)
+        power_profiler.stop();
+
+        dev_energies_mj.push_back(power_profiler.get_device_energy() / 1000.0f); // convert uJ to mJ
+        all_traces_per_iter.push_back(power_profiler.get_power_execution_data());
     }
 
     int executed_runs = __timer_vals_runtime.size();
@@ -301,6 +312,8 @@ int main(int argc, char* argv[]) {
     //erase warm-up elemements
     CCUTILS_SECTION_JSON_PUT(dp, "runtimes", __timer_vals_runtime);
     CCUTILS_SECTION_JSON_PUT(dp, "barrier_time", __timer_vals_barrier);
+    CCUTILS_SECTION_JSON_PUT(dp, "device_energies_mj",     dev_energies_mj);
+    CCUTILS_SECTION_JSON_PUT(dp, "power_traces", all_traces_per_iter);
     // compute throughput per runtime (samples/s)
     std::vector<float> throughputs;
     for(float rt : __timer_vals_runtime){
@@ -310,6 +323,7 @@ int main(int argc, char* argv[]) {
 
     CCUTILS_SECTION_JSON_PUT(dp, "throughputs", throughputs);
     CCUTILS_SECTION_JSON_PUT(dp, "hostname", host_name);
+    CCUTILS_SECTION_JSON_PUT(dp, "device_id", my_device);
 
     CCUTILS_MPI_SECTION_END(dp);
     #endif
