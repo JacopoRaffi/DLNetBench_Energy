@@ -304,6 +304,7 @@ int main(int argc, char* argv[]) {
     int dp_size = world_size / (num_stage * num_expert_shards);
     
     CCUTILS_MPI_INIT
+    install_signal_handlers();
     print_topology_graph(MPI_COMM_WORLD);
     // Create DP, PP, and EP communicators
     // Hierarchy: world_size = num_stages * num_expert_shards * dp_size
@@ -489,6 +490,10 @@ int main(int argc, char* argv[]) {
     // Warmup
     std::vector<float> warmup_times;
     for(int wmp = 0; wmp < warmup; wmp++){
+        if(end){
+            CCUTILS_MPI_PRINT_ONCE(printf("Interrupted during warm-up\n");)
+            break;
+        }
         float start_time = MPI_Wtime();
         run_data_pipe_expert_parallel(num_microbatches, stage_id, num_stage, layers_per_stage, pipe_msg_size,
                               fwd_rt_per_microbatch, bwd_rt_per_microbatch,
@@ -520,7 +525,7 @@ int main(int argc, char* argv[]) {
     __timer_vals_dp_comm.clear();
     __timer_vals_ep_comm.clear();
     __timer_vals_dp_ep_comm.clear();
-    install_signal_handlers();
+
     for(int iter = 0; iter < runs; iter++){
         CCUTILS_MPI_TIMER_START(runtime)
         

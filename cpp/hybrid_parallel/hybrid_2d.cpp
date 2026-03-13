@@ -259,6 +259,7 @@ int main(int argc, char* argv[]) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     
     CCUTILS_MPI_INIT
+    install_signal_handlers();
     print_topology_graph(MPI_COMM_WORLD);
 
     assert(num_layers % num_stage == 0);
@@ -377,6 +378,10 @@ int main(int argc, char* argv[]) {
     // Warmup
     std::vector<float> warmup_times;
     for(int wmp = 0; wmp < warmup; wmp++){
+        if(end){
+            CCUTILS_MPI_PRINT_ONCE(printf("Interrupted during warm-up\n");)
+            break;
+        }
         float start_time = MPI_Wtime();
         run_data_pipe_parallel(num_microbatches, stage_id, num_stage, pipe_msg_size,
                               fwd_rt_per_microbatch, bwd_rt_per_microbatch,

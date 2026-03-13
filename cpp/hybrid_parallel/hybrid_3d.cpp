@@ -273,6 +273,7 @@ int main(int argc, char* argv[]) {
     int dp_size = world_size / (num_stage * num_tensor_shards);
     
     CCUTILS_MPI_INIT
+    install_signal_handlers();
     print_topology_graph(MPI_COMM_WORLD);
     
     // Create DP, PP, and TP communicators
@@ -448,6 +449,10 @@ int main(int argc, char* argv[]) {
     // Warmup
     std::vector<float> warmup_times;
     for(int wmp = 0; wmp < warmup; wmp++){
+        if(end){
+            CCUTILS_MPI_PRINT_ONCE(printf("Interrupted during warm-up\n");)
+            break;
+        }
         float start_time = MPI_Wtime();
         run_data_pipe_tensor_parallel(num_microbatches, stage_id, num_stage, pipe_msg_size,
                               fwd_rt_per_microbatch, bwd_rt_per_microbatch,
@@ -478,7 +483,7 @@ int main(int argc, char* argv[]) {
     __timer_vals_pp_comm.clear();
     __timer_vals_dp_comm.clear();
     __timer_vals_tp_comm.clear();
-    install_signal_handlers();
+    
     for(int iter = 0; iter < runs; iter++){
         if(end){
             CCUTILS_MPI_PRINT_ONCE(printf("Interrupted at iteration %d. Total iteration completed: %d \n", iter, __timer_vals_runtime.size());)
