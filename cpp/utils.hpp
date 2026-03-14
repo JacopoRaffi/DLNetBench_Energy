@@ -183,139 +183,52 @@ std::pair<float, float> compute_msg_stats(const std::vector<uint64_t>& sizes, ui
     return {avg, stddev};
 }
 
-/**
- * @brief Extracts the value part from a line formatted as "key: value".
- *
- * @param line The input line containing a key-value pair.
- * @return The extracted value as a string, trimmed of whitespace.
- */
-std::string extract_value(const std::string &line) {
-    size_t pos = line.find(':');
-    if (pos == std::string::npos)
-        return ""; // no delimiter → empty string
+static char default_devices[] = "";
+static char default_gpu[]   = "B200";
+static char default_dtype[] = "bfloat16";
 
-    std::string value = line.substr(pos + 1);
-
-    // trim whitespace
-    value.erase(0, value.find_first_not_of(" \t\r\n"));
-    value.erase(value.find_last_not_of(" \t\r\n") + 1);
-
-    return value;
-}
-
-/**
- * @brief Reads model statistics from a stats file and returns them in a map
- *TODO: change thi func and use a JSON instead
- * The file has this format:
- *   - Forward Flops:<value>
- *   - Backward Flops:<value>
- *   - Model Size:<value>
- *   - Average Forward Time (s):<value>
- *   - Average Backward Time (s):<value>
- *   - Batch Size:<value>
- *   - FFN_Average_Forward_Time (us):15125
- *   - FFN_Average_Backward_Time (us):24139
- *   - Experts: 4
- * Each parsed value is stored in the returned map with keys:
- * "forwardFlops", "backwardFlops", "modelSize", "avgForwardTime", "avgBackwardTime", "batchSize", "ffn_avgForwardTime", "ffn_avgBackwardTime", "experts".
- *
- * @param file_name Path to the model statistics file.
- * @return std::map<std::string, float>.
- */
-std::map<std::string, uint64_t> get_model_stats(std::string filename){
+std::map<std::string, uint64_t> get_model_stats(std::string filename, 
+                                                  std::string gpu, 
+                                                  std::string dtype, 
+                                                  uint64_t batch_size) {
     std::ifstream file(filename);
-
     if (!file.is_open()) {
         std::cerr << std::strerror(errno) << "\n";
         throw std::runtime_error("Could not open model stats file: " + filename);
     }
 
+    nlohmann::json j;
+    file >> j;
+
+    std::string batch_key = std::to_string(batch_size);
+
+    // Validate keys exist
+    if (!j["gpus"].contains(gpu))
+        throw std::runtime_error("GPU not found in JSON: " + gpu);
+    if (!j["gpus"][gpu].contains(dtype))
+        throw std::runtime_error("dtype not found in JSON: " + dtype);
+    if (!j["gpus"][gpu][dtype].contains(batch_key))
+        throw std::runtime_error("batch_size not found in JSON: " + batch_key);
+
+    auto& timing = j["gpus"][gpu][dtype][batch_key];
+
     std::map<std::string, uint64_t> model_stats;
-    std::string line;
+    model_stats["modelSize"]         = j["model_size"].get<uint64_t>();
+    model_stats["nonExpertModelSize"]= j["model_size"].get<uint64_t>();
+    model_stats["sequenceLength"]    = j["seq_len"].get<uint64_t>();
+    model_stats["embeddedDim"]       = j["embedded_dim"].get<uint64_t>();
+    model_stats["batchSize"]         = batch_size;
+    model_stats["experts"]           = j["ffn"]["num_experts"].get<uint64_t>();
+    model_stats["avgForwardTime"]    = (uint64_t)timing["forward_time_us"].get<double>();
+    model_stats["avgBackwardTime"]   = (uint64_t)timing["backward_time_us"].get<double>();
 
-    std::getline(file, line);
-    uint64_t forwardFlops = std::stoull(extract_value(line));
-
-    // Backward Flops
-    std::getline(file, line);
-    uint64_t backwardFlops = std::stoull(extract_value(line));
-
-    // Model Size
-    std::getline(file, line);
-    uint64_t modelSize = std::stoull(extract_value(line));
-
-    // non expert size
-    std::getline(file, line);
-    uint64_t non_expert_size = std::stoull(extract_value(line));
-
-    // Average Forward Time  (should be double, not uint64_t)
-    std::getline(file, line);
-    uint64_t avgForwardTime = std::stod(extract_value(line));
-
-    // Average Backward Time (should be double)
-    std::getline(file, line);
-    uint64_t avgBackwardTime = std::stod(extract_value(line));
-
-    // Batch size
-    std::getline(file, line);
-    uint64_t batch_size = std::stoull(extract_value(line));
-
-    // FFN Average Forward Time (us)
-    std::getline(file, line);
-    uint64_t ffn_avgForwardTime = std::stoull(extract_value(line));
-
-    // FFN Average Backward Time (us)
-    std::getline(file, line);
-    uint64_t ffn_avgBackwardTime = std::stoull(extract_value(line));
-
-    std::getline(file, line); // Experts (optional)
-    uint64_t experts = std::stoull(extract_value(line));
-
-    std::getline(file, line);
-    uint64_t sequence_length = std::stoull(extract_value(line));
-
-    std::getline(file, line); 
-    uint64_t embedded_dim = std::stoull(extract_value(line));
-
-    model_stats["forwardFlops"] = forwardFlops;
-    model_stats["backwardFlops"] = backwardFlops;
-    model_stats["modelSize"] = modelSize;
-    model_stats["avgForwardTime"] = avgForwardTime;
-    model_stats["avgBackwardTime"] = avgBackwardTime;
-    model_stats["batchSize"] = batch_size;
-    model_stats["ffn_avgForwardTime"] = ffn_avgForwardTime;
-    model_stats["ffn_avgBackwardTime"] = ffn_avgBackwardTime;
-    model_stats["experts"] = experts;
-    model_stats["sequenceLength"] = sequence_length;
-    model_stats["embeddedDim"] = embedded_dim;
-    model_stats["nonExpertModelSize"] = non_expert_size;
-    
-    return model_stats;   
+    return model_stats;
 }
 
-
-/**
- * @brief Extracts the number of layers from a model configuration JSON file.
- * The function reads the JSON file and sums up the number of encoder and decoder blocks
- * to determine the total number of layers in the model.
- * @param filename The path to the JSON configuration file.
- * @return The total number of layers in the model.
-*/
-uint count_layers(std::string filename){
+uint count_layers(std::string filename) {
     std::ifstream f(filename);
     json data = json::parse(f);
-
-    uint num_layers = 0;
-
-    if(data.contains("num_encoder_blocks")){
-        num_layers += data["num_encoder_blocks"].get<uint>();
-    }
-
-    if(data.contains("num_decoder_blocks")){
-        num_layers += data["num_decoder_blocks"].get<uint>();
-    }
-
-    return num_layers;
+    return data["num_blocks"].get<uint>();
 }
 
 #endif // UTILS_HPP

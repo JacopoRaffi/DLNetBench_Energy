@@ -173,14 +173,15 @@ int run_data_pipe_parallel(
     REQUIRED_INT_ARG(num_stages, "num_stages", "Number of pipeline stages")                 \
     REQUIRED_INT_ARG(num_microbatches, "num_microbatches", "Number of microbatches")        \
     REQUIRED_STRING_ARG(base_path, "base_path", "Base path for the repository")  
-    
-static char default_devices[] = "";
 
 #define OPTIONAL_ARGS                                                                           \
     OPTIONAL_INT_ARG(warmup, WARM_UP, "-w", "warmups", "Number of warm-up iterations")          \
     OPTIONAL_INT_ARG(runs, RUNS, "-r", "runs", "Number of iterations to run")                   \
     OPTIONAL_STRING_ARG(devices, default_devices, "-d", "devices", "Comma-separated list of devices")  \
-    OPTIONAL_INT_ARG(min_exectime, 0, "-m", "min_exectime", "Minimum total execution time in seconds (overrides runs)")
+    OPTIONAL_INT_ARG(min_exectime, 0, "-m", "min_exectime", "Minimum total execution time in seconds (overrides runs)") \
+    OPTIONAL_INT_ARG(batch_size, 16, "-b", "batch_size", "Batch size to use for the model (overrides batch size in model stats file)") \
+    OPTIONAL_STRING_ARG(gpu, default_gpu, "-g", "gpu", "GPU to use") \
+    OPTIONAL_STRING_ARG(dtype, default_dtype, "-t", "dtype", "Data type to use")
 
 #define BOOLEAN_ARGS \
     BOOLEAN_ARG(help, "-h", "Show help")
@@ -220,21 +221,16 @@ int main(int argc, char* argv[]) {
     
     // --- Construct model stats file path ---
     fs::path repo_path = get_dnnproxy_base_path(args.base_path);
-    fs::path file_path = repo_path / "model_stats" / (model_name + ".txt");
+    fs::path file_path = repo_path / "model_stats" / (model_name + ".json");
 
-    //from gpt_2_l_64 i need to remove the _64
-    std::string strip_model_name = model_name.substr(0, model_name.find_last_of('_'));
-    strip_model_name = strip_model_name.substr(0, strip_model_name.find_last_of('_'));
-    fs::path model_architecture_path = repo_path / "models" / (strip_model_name + ".json");
-
-    uint num_layers = count_layers(model_architecture_path);
+    uint num_layers = count_layers(file_path);
     
     if (!fs::exists(file_path)) {
         std::cerr << "Error: model stats file does not exist: " << file_path << "\n";
         return -1;
     }
     
-    std::map<std::string, uint64_t> model_stats = get_model_stats(file_path);    
+    std::map<std::string, uint64_t> model_stats = get_model_stats(file_path, args.gpu, args.dtype, (uint64_t)args.batch_size);    
     // Get model stats from file
     uint64_t fwd_rt_whole_model = model_stats["avgForwardTime"]; // in us
     uint64_t bwd_rt_whole_model = model_stats["avgBackwardTime"]; // in us
@@ -473,6 +469,8 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp, "dp_allreduce_size_bytes", dp_allreduce_size * sizeof(_FLOAT))
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp, "device", (device == Device::CPU) ? "CPU" : "GPU")
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp, "backend", dp_communicator->get_name())
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp, "dtype", args.dtype)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp, "GPU model", args.gpu)
     
     CCUTILS_SECTION_JSON_PUT(dp_pp, "runtimes", __timer_vals_runtime);
     // compute throughput per runtime (samples/s)

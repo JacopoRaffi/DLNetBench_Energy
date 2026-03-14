@@ -109,14 +109,15 @@ int run_data_parallel(Tensor<_FLOAT, device>** grad_ptrs, Tensor<_FLOAT, device>
     REQUIRED_STRING_ARG(model_name, "model", "Name of the model to use")         \
     REQUIRED_INT_ARG(num_buckets, "num_buckets", "Number of parameter buckets")  \
     REQUIRED_STRING_ARG(base_path, "base_path", "Base path for the repository")  
-    
-static char default_devices[] = "";
 
 #define OPTIONAL_ARGS                                                                           \
     OPTIONAL_INT_ARG(warmup, WARM_UP, "-w", "warmups", "Number of warm-up iterations")          \
     OPTIONAL_INT_ARG(runs, RUNS, "-r", "runs", "Number of iterations to run")                   \
     OPTIONAL_STRING_ARG(devices, default_devices, "-d", "devices", "Comma-separated list of devices")  \
-    OPTIONAL_INT_ARG(min_exectime, 0, "-m", "min_exectime", "Minimum total execution time in seconds (overrides runs)")
+    OPTIONAL_INT_ARG(min_exectime, 0, "-m", "min_exectime", "Minimum total execution time in seconds (overrides runs)") \
+    OPTIONAL_INT_ARG(batch_size, 16, "-b", "batch_size", "Batch size to use for the model (overrides batch size in model stats file)") \
+    OPTIONAL_STRING_ARG(gpu, default_gpu, "-g", "gpu", "GPU to use") \
+    OPTIONAL_STRING_ARG(dtype, default_dtype, "-t", "dtype", "Data type to use")
 
 #define BOOLEAN_ARGS \
     BOOLEAN_ARG(help, "-h", "Show help")
@@ -152,7 +153,7 @@ int main(int argc, char* argv[]) {
 
     // --- Construct model stats file path ---
     fs::path repo_path = get_dnnproxy_base_path(args.base_path);
-    fs::path file_path = repo_path / "model_stats" / (model_name + ".txt");
+    fs::path file_path = repo_path / "model_stats" / (model_name + ".json");
     if (!fs::exists(file_path)) {
         std::cerr << "Error: model stats file does not exist: " << file_path << "\n";
         return -1;
@@ -161,7 +162,7 @@ int main(int argc, char* argv[]) {
     uint64_t runs = args.runs;
     uint64_t warmup = args.warmup;
 
-    std::map<std::string, uint64_t> model_stats = get_model_stats(file_path); // get model stats from file
+    std::map<std::string, uint64_t> model_stats = get_model_stats(file_path, args.gpu, args.dtype, (uint64_t)args.batch_size); // get model stats from file
     uint64_t fwd_rt_whole_model = model_stats["avgForwardTime"]; // in us
     float bwd_rt_per_B = (model_stats["avgBackwardTime"]) / num_buckets; // in us
     uint local_batch_size = model_stats["batchSize"];
@@ -299,6 +300,8 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "total_model_size_params", total_model_size)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "msg_size_avg_bytes", msg_size_avg*sizeof(_FLOAT))
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "msg_size_std_bytes", msg_size_std*sizeof(_FLOAT))
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "GPU model", args.gpu)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "data_type", args.dtype)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "device", (device == Device::CPU) ? "CPU" : "GPU")
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp, "backend", communicator->get_name())
 
