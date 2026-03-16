@@ -95,6 +95,7 @@ int run_data_pipe_tensor_parallel(
     int num_microbatches, 
     int stage_id, 
     int num_stage,
+    uint layers_per_stage,
     uint64_t pipe_msg_size,
     uint64_t fwd_rt,
     uint64_t bwd_rt,
@@ -141,7 +142,7 @@ int run_data_pipe_tensor_parallel(
         }
         // Tensor parallel communication during forward pass
         // 2 all-reduces per microbatch (column-parallel and row-parallel)
-        for(int tp_iter = 0; tp_iter < 2; tp_iter++){
+        for(int tp_iter = 0; tp_iter < 2*layers_per_stage; tp_iter++){
             CCUTILS_MPI_TIMER_START(tp_comm)
             tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
             CCUTILS_MPI_TIMER_STOP(tp_comm)
@@ -176,7 +177,7 @@ int run_data_pipe_tensor_parallel(
         }        
         // Tensor parallel communication during backward pass
         // 2 all-reduces per microbatch
-        for(int tp_iter = 0; tp_iter < 2; tp_iter++){
+        for(int tp_iter = 0; tp_iter < 2*layers_per_stage; tp_iter++){
             CCUTILS_MPI_TIMER_START(tp_comm)
             tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
             CCUTILS_MPI_TIMER_STOP(tp_comm)
@@ -252,6 +253,8 @@ int main(int argc, char* argv[]) {
     fs::path file_path = repo_path / "model_stats" / (model_name + ".json");
 
     uint num_layers = count_layers(file_path);
+
+    uint layers_per_stage = num_layers / num_stage;
     
     if (!fs::exists(file_path)) {
         std::cerr << "Error: model stats file does not exist: " << file_path << "\n";
@@ -453,7 +456,7 @@ int main(int argc, char* argv[]) {
             break;
         }
         float start_time = MPI_Wtime();
-        run_data_pipe_tensor_parallel(num_microbatches, stage_id, num_stage, pipe_msg_size,
+        run_data_pipe_tensor_parallel(num_microbatches, stage_id, num_stage, layers_per_stage, pipe_msg_size,
                               fwd_rt_per_microbatch, bwd_rt_per_microbatch,
                               grad_ptr, sum_grad_ptr, dp_allreduce_size,
                               fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
@@ -470,7 +473,7 @@ int main(int argc, char* argv[]) {
 
     #ifdef PROXY_LOOP
     while(true){
-        run_data_pipe_tensor_parallel(num_microbatches, stage_id, num_stage, pipe_msg_size,
+        run_data_pipe_tensor_parallel(num_microbatches, stage_id, num_stage, layers_per_stage, pipe_msg_size,
                             fwd_rt_per_microbatch, bwd_rt_per_microbatch,
                             grad_ptr, sum_grad_ptr, dp_allreduce_size,
                             fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
@@ -490,7 +493,7 @@ int main(int argc, char* argv[]) {
         }
         
         CCUTILS_MPI_TIMER_START(runtime)
-        run_data_pipe_tensor_parallel(num_microbatches, stage_id, num_stage, pipe_msg_size,
+        run_data_pipe_tensor_parallel(num_microbatches, stage_id, num_stage, layers_per_stage, pipe_msg_size,
                               fwd_rt_per_microbatch, bwd_rt_per_microbatch,
                               grad_ptr, sum_grad_ptr, dp_allreduce_size,
                               fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
@@ -544,6 +547,7 @@ int main(int argc, char* argv[]) {
     
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "model_name", model_name)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "num_stages", num_stage)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "layers_per_stage", layers_per_stage)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "num_microbatches", num_microbatches)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "num_tensor_shards", num_tensor_shards)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "samples_per_microbatch", samples_per_microbatch)
