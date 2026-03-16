@@ -167,14 +167,15 @@ void run_fsdp(Tensor<_FLOAT, device>** shard_params,
     REQUIRED_INT_ARG(num_units, "num_units", "Number of parameter units")                   \
     REQUIRED_INT_ARG(sharding_factor, "sharding_factor", "Sharding factor for each unit")   \
     REQUIRED_STRING_ARG(base_path, "base_path", "Base path for the repository")  
-    
-static char default_devices[] = "";
 
 #define OPTIONAL_ARGS                                                                           \
     OPTIONAL_INT_ARG(warmup, WARM_UP, "-w", "warmups", "Number of warm-up iterations")          \
     OPTIONAL_INT_ARG(runs, RUNS, "-r", "runs", "Number of iterations to run")                   \
     OPTIONAL_STRING_ARG(devices, default_devices, "-d", "devices", "Comma-separated list of devices")  \
-    OPTIONAL_INT_ARG(min_exectime, 0, "-m", "min_exectime", "Minimum total execution time in seconds (overrides runs)")
+    OPTIONAL_INT_ARG(min_exectime, 0, "-m", "min_exectime", "Minimum total execution time in seconds (overrides runs)") \
+    OPTIONAL_INT_ARG(batch_size, 16, "-b", "batch_size", "Batch size to use for the model (overrides batch size in model stats file)") \
+    OPTIONAL_STRING_ARG(gpu, default_gpu, "-g", "gpu", "GPU to use") \
+    OPTIONAL_STRING_ARG(dtype, default_dtype, "-t", "dtype", "Data type to use")
 
 #define BOOLEAN_ARGS \
     BOOLEAN_ARG(help, "-h", "Show help")
@@ -190,7 +191,7 @@ int main(int argc, char* argv[]) {
 #endif
 
     CCUTILS_MPI_INIT
-
+    install_signal_handlers();
     int world_size, rank;
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -224,7 +225,7 @@ int main(int argc, char* argv[]) {
     }
 
     // --- Construct model stats file path ---
-    fs::path file_path = repo_path / "model_stats" / (model_name + ".txt");
+    fs::path file_path = repo_path / "model_stats" / (model_name + ".json");
     if (!fs::exists(file_path)) {
         CCUTILS_MPI_PRINT_ONCE(std::cerr << "Error: model stats file does not exist: " << file_path << "\n")
         MPI_Finalize();
@@ -232,8 +233,7 @@ int main(int argc, char* argv[]) {
     }
 
     print_topology_graph(MPI_COMM_WORLD);
-
-    std::map<std::string, uint64_t> model_stats = get_model_stats(file_path.string()); // get model stats from file
+    std::map<std::string, uint64_t> model_stats = get_model_stats(file_path.string(), args.gpu, args.dtype, (uint64_t)args.batch_size); // get model stats from file
 
     uint64_t total_model_size = model_stats["modelSize"];
     uint local_batch_size = model_stats["batchSize"];
@@ -358,6 +358,10 @@ int main(int argc, char* argv[]) {
 
     std::vector<float> warmup_times;
     for(int i = 0; i < warmup; i++){
+        if(end){
+            CCUTILS_MPI_PRINT_ONCE(printf("Interrupted during warm-up\n");)
+            break;
+        }
         float start_time = MPI_Wtime();
         run_fsdp(shard_params, allgather_buf, allreduce_params,
                  fwd_rt_whole_unit, bwd_rt_whole_unit,
@@ -388,7 +392,6 @@ int main(int argc, char* argv[]) {
     __timer_vals_reduce_scatter.clear();
     __timer_vals_barrier.clear();
 
-    install_signal_handlers();
     for(int i = 0; i < runs; i++){
         if(end){
             CCUTILS_MPI_PRINT_ONCE(printf("Interrupted at iteration %d. Total iteration completed: %d \n", i, __timer_vals_runtime.size());)
@@ -456,6 +459,8 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "backend", unit_comm_proxy->get_name())
     CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "fwd_time_per_unit_us", fwd_rt_whole_unit)
     CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "bwd_time_per_unit_us", bwd_rt_whole_unit)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "dtype", args.dtype)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "GPU model", args.gpu)
 
     // allgather and reducescatter msg_size
     // Since all units are equal

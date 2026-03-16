@@ -95,6 +95,7 @@ int run_data_pipe_tensor_parallel(
     int num_microbatches, 
     int stage_id, 
     int num_stage,
+    uint layers_per_stage,
     uint64_t pipe_msg_size,
     uint64_t fwd_rt,
     uint64_t bwd_rt,
@@ -141,7 +142,7 @@ int run_data_pipe_tensor_parallel(
         }
         // Tensor parallel communication during forward pass
         // 2 all-reduces per microbatch (column-parallel and row-parallel)
-        for(int tp_iter = 0; tp_iter < 2; tp_iter++){
+        for(int tp_iter = 0; tp_iter < 2*layers_per_stage; tp_iter++){
             CCUTILS_MPI_TIMER_START(tp_comm)
             tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
             CCUTILS_MPI_TIMER_STOP(tp_comm)
@@ -176,7 +177,7 @@ int run_data_pipe_tensor_parallel(
         }        
         // Tensor parallel communication during backward pass
         // 2 all-reduces per microbatch
-        for(int tp_iter = 0; tp_iter < 2; tp_iter++){
+        for(int tp_iter = 0; tp_iter < 2*layers_per_stage; tp_iter++){
             CCUTILS_MPI_TIMER_START(tp_comm)
             tp_communicator->Allreduce(tp_buffer->data, tp_result_buffer->data, tp_allreduce_size);
             CCUTILS_MPI_TIMER_STOP(tp_comm)
@@ -197,14 +198,15 @@ int run_data_pipe_tensor_parallel(
     REQUIRED_INT_ARG(num_microbatches, "num_microbatches", "Number of microbatches")                \
     REQUIRED_INT_ARG(num_tensor_shards, "num_tensor_shards", "Number of tensor parallel shards")    \
     REQUIRED_STRING_ARG(base_path, "base_path", "Base path for the repository")  
-    
-static char default_devices[] = "";
 
 #define OPTIONAL_ARGS                                                                           \
     OPTIONAL_INT_ARG(warmup, WARM_UP, "-w", "warmups", "Number of warm-up iterations")          \
     OPTIONAL_INT_ARG(runs, RUNS, "-r", "runs", "Number of iterations to run")                   \
     OPTIONAL_STRING_ARG(devices, default_devices, "-d", "devices", "Comma-separated list of devices")  \
-    OPTIONAL_INT_ARG(min_exectime, 0, "-m", "min_exectime", "Minimum total execution time in seconds (overrides runs)")
+    OPTIONAL_INT_ARG(min_exectime, 0, "-m", "min_exectime", "Minimum total execution time in seconds (overrides runs)") \
+    OPTIONAL_INT_ARG(batch_size, 16, "-b", "batch_size", "Batch size to use for the model (overrides batch size in model stats file)") \
+    OPTIONAL_STRING_ARG(gpu, default_gpu, "-g", "gpu", "GPU to use") \
+    OPTIONAL_STRING_ARG(dtype, default_dtype, "-t", "dtype", "Data type to use")
 
 #define BOOLEAN_ARGS \
     BOOLEAN_ARG(help, "-h", "Show help")
@@ -216,6 +218,22 @@ int main(int argc, char* argv[]) {
     int num_stage;
     int num_microbatches;
     int num_tensor_shards;
+
+#ifdef PROXY_ENABLE_ONECCL
+    int provided;
+    MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
+#else
+    MPI_Init(&argc, &argv);
+#endif
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    
+    // Check that world_size = num_stages * num_tensor_shards * dp_size
+    assert(world_size % (num_stage * num_tensor_shards) == 0);
+    int dp_size = world_size / (num_stage * num_tensor_shards);
+    
+    CCUTILS_MPI_INIT
+    install_signal_handlers();
     
     args_t args = make_default_args();
     if (!parse_args(argc, argv, &args) || args.help) {
@@ -232,19 +250,18 @@ int main(int argc, char* argv[]) {
 
     // --- Construct model stats file path ---
     fs::path repo_path = get_dnnproxy_base_path(args.base_path);
-    fs::path file_path = repo_path / "model_stats" / (model_name + ".txt");
-    std::string strip_model_name = model_name.substr(0, model_name.find_last_of('_'));
-    strip_model_name = strip_model_name.substr(0, strip_model_name.find_last_of('_'));
-    fs::path model_architecture_path = repo_path / "models" / (strip_model_name + ".json");
+    fs::path file_path = repo_path / "model_stats" / (model_name + ".json");
 
-    uint num_layers = count_layers(model_architecture_path);
+    uint num_layers = count_layers(file_path);
+
+    uint layers_per_stage = num_layers / num_stage;
     
     if (!fs::exists(file_path)) {
         std::cerr << "Error: model stats file does not exist: " << file_path << "\n";
         return -1;
     }
     
-    std::map<std::string, uint64_t> model_stats = get_model_stats(file_path);
+    std::map<std::string, uint64_t> model_stats = get_model_stats(file_path, args.gpu, args.dtype, args.batch_size);
     
     // Get model stats from file
     uint64_t fwd_rt_whole_model = model_stats["avgForwardTime"]; // in us
@@ -259,20 +276,6 @@ int main(int argc, char* argv[]) {
     assert(num_layers % num_stage == 0);
     assert(local_batch_size % num_microbatches == 0);
     
-#ifdef PROXY_ENABLE_ONECCL
-    int provided;
-    MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
-#else
-    MPI_Init(&argc, &argv);
-#endif
-    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    
-    // Check that world_size = num_stages * num_tensor_shards * dp_size
-    assert(world_size % (num_stage * num_tensor_shards) == 0);
-    int dp_size = world_size / (num_stage * num_tensor_shards);
-    
-    CCUTILS_MPI_INIT
     print_topology_graph(MPI_COMM_WORLD);
     
     // Create DP, PP, and TP communicators
@@ -448,8 +451,12 @@ int main(int argc, char* argv[]) {
     // Warmup
     std::vector<float> warmup_times;
     for(int wmp = 0; wmp < warmup; wmp++){
+        if(end){
+            CCUTILS_MPI_PRINT_ONCE(printf("Interrupted during warm-up\n");)
+            break;
+        }
         float start_time = MPI_Wtime();
-        run_data_pipe_tensor_parallel(num_microbatches, stage_id, num_stage, pipe_msg_size,
+        run_data_pipe_tensor_parallel(num_microbatches, stage_id, num_stage, layers_per_stage, pipe_msg_size,
                               fwd_rt_per_microbatch, bwd_rt_per_microbatch,
                               grad_ptr, sum_grad_ptr, dp_allreduce_size,
                               fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
@@ -466,7 +473,7 @@ int main(int argc, char* argv[]) {
 
     #ifdef PROXY_LOOP
     while(true){
-        run_data_pipe_tensor_parallel(num_microbatches, stage_id, num_stage, pipe_msg_size,
+        run_data_pipe_tensor_parallel(num_microbatches, stage_id, num_stage, layers_per_stage, pipe_msg_size,
                             fwd_rt_per_microbatch, bwd_rt_per_microbatch,
                             grad_ptr, sum_grad_ptr, dp_allreduce_size,
                             fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
@@ -478,7 +485,7 @@ int main(int argc, char* argv[]) {
     __timer_vals_pp_comm.clear();
     __timer_vals_dp_comm.clear();
     __timer_vals_tp_comm.clear();
-    install_signal_handlers();
+    
     for(int iter = 0; iter < runs; iter++){
         if(end){
             CCUTILS_MPI_PRINT_ONCE(printf("Interrupted at iteration %d. Total iteration completed: %d \n", iter, __timer_vals_runtime.size());)
@@ -486,7 +493,7 @@ int main(int argc, char* argv[]) {
         }
         
         CCUTILS_MPI_TIMER_START(runtime)
-        run_data_pipe_tensor_parallel(num_microbatches, stage_id, num_stage, pipe_msg_size,
+        run_data_pipe_tensor_parallel(num_microbatches, stage_id, num_stage, layers_per_stage, pipe_msg_size,
                               fwd_rt_per_microbatch, bwd_rt_per_microbatch,
                               grad_ptr, sum_grad_ptr, dp_allreduce_size,
                               fwd_send_buff, fwd_recv_buff, bwd_send_buff, bwd_recv_buff,
@@ -529,8 +536,8 @@ int main(int argc, char* argv[]) {
         __timer_vals_dp_comm.resize((size_t)executed_runs);
 
     // 2 allreduces per microbatch x 2 passes (fwd + bwd)
-    if (__timer_vals_tp_comm.size() > (size_t)executed_runs * num_microbatches * 4)
-        __timer_vals_tp_comm.resize((size_t)executed_runs * num_microbatches * 4);
+    if (__timer_vals_tp_comm.size() > (size_t)executed_runs * num_microbatches * 4 * layers_per_stage)
+        __timer_vals_tp_comm.resize((size_t)executed_runs * num_microbatches * 4 * layers_per_stage);
     
     char host_name[MPI_MAX_PROCESSOR_NAME];
     int namelen;
@@ -540,6 +547,7 @@ int main(int argc, char* argv[]) {
     
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "model_name", model_name)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "num_stages", num_stage)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "layers_per_stage", layers_per_stage)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "num_microbatches", num_microbatches)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "num_tensor_shards", num_tensor_shards)
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "samples_per_microbatch", samples_per_microbatch)
@@ -555,7 +563,9 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "dp_allreduce_size_bytes", dp_allreduce_size * sizeof(_FLOAT))
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "device", (device == Device::CPU) ? "CPU" : "GPU")
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "backend", dp_communicator->get_name())
-    
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "GPU model", args.gpu)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_tp, "data_type", args.dtype)
+
     CCUTILS_SECTION_JSON_PUT(dp_pp_tp, "runtimes", __timer_vals_runtime);
     //compute trhoughput per runtime (samples/s)
     std::vector<float> throughputs;

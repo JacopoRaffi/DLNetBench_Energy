@@ -1,0 +1,110 @@
+{
+  "model": "vit-l",
+  "seq_len": 197,
+  "embedded_dim": 1024,
+  "num_blocks": 24,
+  "model_size": 304351232,
+  "ffn": {
+    "intermediate_size": 4096,
+    "num_experts": 1,
+    "active_experts_k": 1
+  },
+  "gpus": {
+    "A100": {
+      "bfloat16": {
+        "16": {
+          "forward_time_us": 6297.39,
+          "backward_time_us": 12594.78
+        },
+        "32": {
+          "forward_time_us": 12594.78,
+          "backward_time_us": 25189.56
+        },
+        "64": {
+          "forward_time_us": 25189.56,
+          "backward_time_us": 50379.12
+        },
+        "128": {
+          "forward_time_us": 50379.12,
+          "backward_time_us": 100758.23
+        }
+      }
+    },
+    "H200": {
+      "bfloat16": {
+        "16": {
+          "forward_time_us": 992.82,
+          "backward_time_us": 1985.63
+        },
+        "32": {
+          "forward_time_us": 1985.63,
+          "backward_time_us": 3971.27
+        },
+        "64": {
+          "forward_time_us": 3971.27,
+          "backward_time_us": 7942.54
+        },
+        "128": {
+          "forward_time_us": 7942.54,
+          "backward_time_us": 15885.08
+        }
+      },
+      "float8": {
+        "16": {
+          "forward_time_us": 496.41,
+          "backward_time_us": 992.82
+        },
+        "32": {
+          "forward_time_us": 992.82,
+          "backward_time_us": 1985.63
+        },
+        "64": {
+          "forward_time_us": 1985.63,
+          "backward_time_us": 3971.27
+        },
+        "128": {
+          "forward_time_us": 3971.27,
+          "backward_time_us": 7942.54
+        }
+      }
+    },
+    "B200": {
+      "bfloat16": {
+        "16": {
+          "forward_time_us": 873.24,
+          "backward_time_us": 1746.48
+        },
+        "32": {
+          "forward_time_us": 1746.48,
+          "backward_time_us": 3492.95
+        },
+        "64": {
+          "forward_time_us": 3492.95,
+          "backward_time_us": 6985.9
+        },
+        "128": {
+          "forward_time_us": 6985.9,
+          "backward_time_us": 13971.81
+        }
+      },
+      "float8": {
+        "16": {
+          "forward_time_us": 436.62,
+          "backward_time_us": 873.24
+        },
+        "32": {
+          "forward_time_us": 873.24,
+          "backward_time_us": 1746.48
+        },
+        "64": {
+          "forward_time_us": 1746.48,
+          "backward_time_us": 3492.95
+        },
+        "128": {
+          "forward_time_us": 3492.95,
+          "backward_time_us": 6985.9
+        }
+      }
+    }
+  }
+}

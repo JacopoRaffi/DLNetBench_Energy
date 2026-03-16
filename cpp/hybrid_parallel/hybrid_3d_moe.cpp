@@ -216,14 +216,15 @@ int run_data_pipe_expert_parallel(
     REQUIRED_INT_ARG(num_microbatches, "num_microbatches", "Number of microbatches")        \
     REQUIRED_INT_ARG(num_expert_shards, "num_expert_shards", "Number of expert parallel shards (number of devices per stage that share experts)") \
     REQUIRED_STRING_ARG(base_path, "base_path", "Base path for the repository")  
-    
-static char default_devices[] = "";
 
 #define OPTIONAL_ARGS                                                                           \
     OPTIONAL_INT_ARG(warmup, WARM_UP, "-w", "warmups", "Number of warm-up iterations")          \
     OPTIONAL_INT_ARG(runs, RUNS, "-r", "runs", "Number of iterations to run")                   \
     OPTIONAL_STRING_ARG(devices, default_devices, "-d", "devices", "Comma-separated list of devices")  \
-    OPTIONAL_INT_ARG(min_exectime, 0, "-m", "min_exectime", "Minimum total execution time in seconds (overrides runs)")
+    OPTIONAL_INT_ARG(min_exectime, 0, "-m", "min_exectime", "Minimum total execution time in seconds (overrides runs)") \
+    OPTIONAL_INT_ARG(batch_size, 16, "-b", "batch_size", "Batch size to use for the model (overrides batch size in model stats file)") \
+    OPTIONAL_STRING_ARG(gpu, default_gpu, "-g", "gpu", "GPU to use") \
+    OPTIONAL_STRING_ARG(dtype, default_dtype, "-t", "dtype", "Data type to use")
 
 #define BOOLEAN_ARGS \
     BOOLEAN_ARG(help, "-h", "Show help")
@@ -236,6 +237,22 @@ int main(int argc, char* argv[]) {
     int num_stage;
     int num_microbatches;
     int num_expert_shards;  // Number of expert parallel groups
+
+#ifdef PROXY_ENABLE_ONECCL
+    int provided;
+    MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
+#else
+    MPI_Init(&argc, &argv);
+#endif
+    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    
+    // Check that world_size = num_stages * num_expert_shards * dp_size
+    assert(world_size % (num_stage * num_expert_shards) == 0);
+    int dp_size = world_size / (num_stage * num_expert_shards);
+    
+    CCUTILS_MPI_INIT
+    install_signal_handlers();
     
     args_t args = make_default_args();
     if (!parse_args(argc, argv, &args) || args.help) {
@@ -252,20 +269,16 @@ int main(int argc, char* argv[]) {
     
     // --- Construct model stats file path ---
     fs::path repo_path = get_dnnproxy_base_path(args.base_path);
-    fs::path file_path = repo_path / "model_stats" / (model_name + ".txt");
-    std::string strip_model_name = model_name.substr(0, model_name.find_last_of('_'));
-    strip_model_name = strip_model_name.substr(0, strip_model_name.find_last_of('_'));
+    fs::path file_path = repo_path / "model_stats" / (model_name + ".json");
 
-    fs::path model_architecture_path = repo_path / "models" / (strip_model_name + ".json");
-
-    uint num_layers = count_layers(model_architecture_path);
+    uint num_layers = count_layers(file_path);
     
     if (!fs::exists(file_path)) {
         std::cerr << "Error: model stats file does not exist: " << file_path << "\n";
         return -1;
     }
     
-    std::map<std::string, uint64_t> model_stats = get_model_stats(file_path);
+    std::map<std::string, uint64_t> model_stats = get_model_stats(file_path, args.gpu, args.dtype, args.batch_size);
     
     // Get model stats from file
     uint64_t fwd_rt_whole_model = model_stats["avgForwardTime"]; // in us
@@ -290,20 +303,6 @@ int main(int argc, char* argv[]) {
     assert(local_batch_size % num_microbatches == 0);
     assert(num_experts % num_expert_shards == 0);
     
-#ifdef PROXY_ENABLE_ONECCL
-    int provided;
-    MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &provided);
-#else
-    MPI_Init(&argc, &argv);
-#endif
-    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    
-    // Check that world_size = num_stages * num_expert_shards * dp_size
-    assert(world_size % (num_stage * num_expert_shards) == 0);
-    int dp_size = world_size / (num_stage * num_expert_shards);
-    
-    CCUTILS_MPI_INIT
     print_topology_graph(MPI_COMM_WORLD);
     // Create DP, PP, and EP communicators
     // Hierarchy: world_size = num_stages * num_expert_shards * dp_size
@@ -489,6 +488,10 @@ int main(int argc, char* argv[]) {
     // Warmup
     std::vector<float> warmup_times;
     for(int wmp = 0; wmp < warmup; wmp++){
+        if(end){
+            CCUTILS_MPI_PRINT_ONCE(printf("Interrupted during warm-up\n");)
+            break;
+        }
         float start_time = MPI_Wtime();
         run_data_pipe_expert_parallel(num_microbatches, stage_id, num_stage, layers_per_stage, pipe_msg_size,
                               fwd_rt_per_microbatch, bwd_rt_per_microbatch,
@@ -520,7 +523,7 @@ int main(int argc, char* argv[]) {
     __timer_vals_dp_comm.clear();
     __timer_vals_ep_comm.clear();
     __timer_vals_dp_ep_comm.clear();
-    install_signal_handlers();
+
     for(int iter = 0; iter < runs; iter++){
         CCUTILS_MPI_TIMER_START(runtime)
         
@@ -599,6 +602,8 @@ int main(int argc, char* argv[]) {
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "dp_allreduce_size_bytes", dp_allreduce_size * sizeof(_FLOAT))
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "device", (device == Device::CPU) ? "CPU" : "GPU")
     CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "backend", dp_communicator->get_name())
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "GPU model", args.gpu)
+    CCUTILS_MPI_GLOBAL_JSON_PUT(dp_pp_ep, "data_type", args.dtype)
     
     CCUTILS_SECTION_JSON_PUT(dp_pp_ep, "runtimes", __timer_vals_runtime);
     //compute trhoughputs based on runtimes and batch size
