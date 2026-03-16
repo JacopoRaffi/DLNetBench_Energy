@@ -536,8 +536,8 @@ int main(int argc, char* argv[]) {
         __timer_vals_dp_comm.resize((size_t)executed_runs);
 
     // 2 allreduces per microbatch x 2 passes (fwd + bwd)
-    if (__timer_vals_tp_comm.size() > (size_t)executed_runs * num_microbatches * 4)
-        __timer_vals_tp_comm.resize((size_t)executed_runs * num_microbatches * 4);
+    if (__timer_vals_tp_comm.size() > (size_t)executed_runs * num_microbatches * 4 * layers_per_stage)
+        __timer_vals_tp_comm.resize((size_t)executed_runs * num_microbatches * 4 * layers_per_stage);
     
     char host_name[MPI_MAX_PROCESSOR_NAME];
     int namelen;
