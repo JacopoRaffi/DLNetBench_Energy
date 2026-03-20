@@ -34,10 +34,10 @@
 // Default: BFLOAT16
 // -----------------------------
 #ifndef PROXY_FLOAT8  // Se FP8 non è richiesto
-    #if defined(PROXY_CUDA)
+    #if defined(PROXY_ENABLE_CUDA)
         #include <cuda_bf16.h>
         using _FLOAT = __nv_bfloat16;
-    #elif defined(PROXY_HIP)
+    #elif defined(PROXY_ENABLE_HIP)
         #include <hip/hip_bfloat16.h>
         using _FLOAT = hip_bfloat16;
     #elif defined(PROXY_ENABLE_ONECCL)
@@ -58,10 +58,10 @@
 // User requested FP8
 // -----------------------------
 #else  // PROXY_FLOAT8 definito
-    #if defined(PROXY_CUDA)
+    #if defined(PROXY_ENABLE_CUDA)
         #include <cuda_fp8.h>
         using _FLOAT = __nv_fp8_e4m3;  // o __nv_fp8_e5m2
-    #elif defined(PROXY_HIP)
+    #elif defined(PROXY_ENABLE_HIP)
         #error "FP8 not supported on HIP yet"
     #elif defined(PROXY_ENABLE_ONECCL)
         using _FLOAT = sycl::ext::oneapi::experimental::fp8;
