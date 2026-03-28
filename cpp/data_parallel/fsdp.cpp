@@ -17,6 +17,10 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <filesystem>
+
+#include <power_profiler.hpp>
+#include <data_types.hpp>
+
 namespace fs = std::filesystem;
 
 #include <ccutils/mpi/mpi_timers.hpp>
@@ -392,11 +396,24 @@ int main(int argc, char* argv[]) {
     __timer_vals_reduce_scatter.clear();
     __timer_vals_barrier.clear();
 
+
+    int node_id = 0;
+    if (const char* slurm_nodeid = std::getenv("SLURM_NODEID")) {
+        node_id = std::atoi(slurm_nodeid);
+    }
+
+    profiler::PowerProfiler power_profiler(my_device, node_id, POWER_SAMPLING_RATE_MS);
+    std::vector<float> dev_energies_mj;
+    std::vector<profiler::data_types::power_trace_t> all_traces_per_iter;
+
+
     for(int i = 0; i < runs; i++){
         if(end){
             CCUTILS_MPI_PRINT_ONCE(printf("Interrupted at iteration %d. Total iteration completed: %d \n", i, __timer_vals_runtime.size());)
             break;
         }
+	power_profiler.trace_clear();
+	power_profiler.start();
 
         CCUTILS_MPI_TIMER_START(runtime);
         run_fsdp(shard_params, allgather_buf, allreduce_params,
@@ -404,6 +421,11 @@ int main(int argc, char* argv[]) {
                  num_units, sharding_factor, max_params_per_shard,
                  num_replicas, unit_comm_proxy, allreduce_comm_proxy);
         CCUTILS_MPI_TIMER_STOP(runtime);
+    	power_profiler.stop();
+
+	dev_energies_mj.push_back(power_profiler.get_device_energy() / 1000.0f); // convert uJ to mJ
+	all_traces_per_iter.push_back(power_profiler.get_power_execution_data());
+    
     } 
 
     int executed_runs = __timer_vals_runtime.size();
@@ -446,6 +468,8 @@ int main(int argc, char* argv[]) {
     CCUTILS_SECTION_JSON_PUT(fsdp, "barrier", __timer_vals_barrier)
     CCUTILS_SECTION_JSON_PUT(fsdp, "hostname", host_name);
     CCUTILS_SECTION_JSON_PUT(fsdp, "rank", rank);
+    CCUTILS_SECTION_JSON_PUT(fsdp, "device_energies_mj",     dev_energies_mj);
+    CCUTILS_SECTION_JSON_PUT(fsdp, "power_traces", all_traces_per_iter);
 
 
     CCUTILS_MPI_GLOBAL_JSON_PUT(fsdp, "model_size_bytes", total_model_size*sizeof(_FLOAT))

@@ -21,7 +21,8 @@
 
 #include "../netcommunicators.hpp"
 
-#include <profiler/power_profiler.hpp>
+#include <power_profiler.hpp>
+#include <data_types.hpp>
 
 namespace fs = std::filesystem;
 using nlohmann::json;
@@ -265,9 +266,14 @@ int main(int argc, char* argv[]) {
     // clear barrier times
     __timer_vals_barrier.clear();
 
+    int node_id = 0;
+    if (const char* slurm_nodeid = std::getenv("SLURM_NODEID")) {
+    	node_id = std::atoi(slurm_nodeid);
+    }
+
     profiler::PowerProfiler power_profiler(my_device, node_id, POWER_SAMPLING_RATE_MS);
     std::vector<float> dev_energies_mj;
-    std::vector<data_types::power_trace_t> all_traces_per_iter;
+    std::vector<profiler::data_types::power_trace_t> all_traces_per_iter;
     for(int iter = 0; iter < runs; iter++){
         if(end){
             CCUTILS_MPI_PRINT_ONCE(printf("Interrupted at iteration %d. Total iteration completed: %d \n", iter, __timer_vals_runtime.size());)
