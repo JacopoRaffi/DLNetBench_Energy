@@ -547,6 +547,34 @@
           "ffn_backward_time_us": 141197.05
         }
       }
+    },
+    "INTEL1550": {
+      "bfloat16": {
+        "16": {
+          "forward_time_us": 45680903.14,
+          "backward_time_us": 91361806.28,
+          "ffn_forward_time_us": 18809783.65,
+          "ffn_backward_time_us": 37619567.29
+        },
+        "32": {
+          "forward_time_us": 91361806.28,
+          "backward_time_us": 182723612.57,
+          "ffn_forward_time_us": 37619567.29,
+          "ffn_backward_time_us": 75239134.59
+        },
+        "64": {
+          "forward_time_us": 182723612.57,
+          "backward_time_us": 365447225.13,
+          "ffn_forward_time_us": 75239134.59,
+          "ffn_backward_time_us": 150478269.17
+        },
+        "128": {
+          "forward_time_us": 365447225.13,
+          "backward_time_us": 730894450.27,
+          "ffn_forward_time_us": 150478269.17,
+          "ffn_backward_time_us": 300956538.34
+        }
+      }
     }
   },
   "non_expert_size": 1605636096

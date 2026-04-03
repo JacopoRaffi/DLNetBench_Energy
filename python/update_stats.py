@@ -20,6 +20,12 @@ GPU_SPECS = {
         },
         "bandwidth": 4.8e12,        # 4.8 TB/s (HBM3e)
     },
+    "INTEL1550": {
+        "peak_flops": {
+            "bfloat16": 0.419e15,   # 419.4 TFLOPS (BF16 XMX Engine, per Tile)
+        },
+        "bandwidth": 1.64e12,       # 1.64 TB/s (64GB HBM2e, per Tile)
+    },
     "B200": {
         "peak_flops": {
             "bfloat16": 2.25e15,    # 2.25 PFLOPS (BF16 Tensor Core, Dense)
