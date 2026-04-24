@@ -26,8 +26,6 @@ namespace fs = std::filesystem;
 #include <ccutils/mpi/mpi_timers.hpp>
 #include <ccutils/mpi/mpi_macros.hpp>
 
-#include "../netcommunicators.hpp"
-
 #ifdef PROXY_ENABLE_ONECCL
 #include <oneapi/ccl.hpp>
 #include <CL/sycl.hpp>
@@ -235,8 +233,6 @@ int main(int argc, char* argv[]) {
         MPI_Finalize();
         return -1;
     }
-
-    print_topology_graph(MPI_COMM_WORLD);
     std::map<std::string, uint64_t> model_stats = get_model_stats(file_path.string(), args.gpu, args.dtype, (uint64_t)args.batch_size); // get model stats from file
 
     uint64_t total_model_size = model_stats["modelSize"];
