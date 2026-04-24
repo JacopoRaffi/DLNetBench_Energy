@@ -1,0 +1,33 @@
+variables:
+  nodes: [2, 4, 8, 16, 32, 64, 128]
+  # algorithm: ["ring", "tree"]
+  # protocol: ["Simple"]
+  # n_channels: [2, 4, 8, 16, 32]
+  # n_threads: [64, 128, 256, 512]
+
+aurora:
+  scheduler: pbs
+  default_conf:
+    account: <account>
+    cpus_per_task: <cpus-per-task>
+    time: "00:10:00"
+    partition: <partition>
+    gpus: <gpus>
+    env:
+      - 
+    custom_headers:
+        - "#SBATCH --exclusive"
+    modules:
+      - 
+
+  configs:
+    - name: "aurora__algo_{algorithm}__{protocol}_protocol__{nodes}_nodes"
+      nodes: "{nodes}"
+      env:
+        - 
+    - name: "aurora__channels{n_channels}__threads{n_threads}__{nodes}nodes"
+      nodes: "{nodes}"
+      env:
+        - 
+    - name: "aurora__oneccl_default__{nodes}_nodes"
+      nodes: "{nodes}"

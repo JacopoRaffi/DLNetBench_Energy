@@ -1,0 +1,30 @@
+sequential: false
+variables:
+  system: ['aurora']
+  partition: ['']
+  protocol: ['Simple']
+  batch_size: [32]
+  algorithm: ['ring', 'tree']
+  n_channels: [2, 4, 8, 16, 32]
+  n_threads: [64, 128, 256, 512]
+  nodes: [2, 4, 8, 16]
+  dp_model: ['vit-h', 'vit-l']
+jobs:
+  - config: "{system}__algo_{algorithm}__{protocol}_protocol__{nodes}_nodes"
+    config_jobs:
+      - tag: "dp_{dp_model}_{algorithm}"
+        variables:
+          num_buckets: [30]
+        command: "srun -N {nodes} ./cpp/data_parallel/dp {dp_model} {num_buckets} . -w 2 -r 5 -b {batch_size} -g INTEL1550"
+  - config: "{system}__channels{n_channels}__threads{n_threads}__{nodes}nodes"
+    config_jobs:
+      - tag: "dp_{dp_model}_ch{n_channels}_th{n_threads}"
+        variables:
+          num_buckets: [30]
+        command: "srun -N {nodes} ./cpp/data_parallel/dp {dp_model} {num_buckets} . -w 2 -r 5 -b {batch_size} -g INTEL1550"
+  - config: "{system}__oneccl__default__{nodes}_nodes"
+    config_jobs:
+      - tag: "dp_{dp_model}_oneccl_default_{nodes}_nodes"
+        variables:
+          num_buckets: [30]
+        command: "srun -N {nodes} ./cpp/data_parallel/dp {dp_model} {num_buckets} . -w 2 -r 5 -b {batch_size} -g INTEL1550"
