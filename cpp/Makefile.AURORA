@@ -28,7 +28,7 @@ LDFLAGS := -fsycl \
 
 # Libraries
 # -lccl for OneCCL communication, -lsycl for the SYCL runtime
-LDLIBS := -lccl -lsycl -lpthread -ldl # -lpower_profiler
+LDLIBS := -lccl -lsycl -lpthread -ldl -lpower_profiler
 
 # -------------------------
 # Targets
