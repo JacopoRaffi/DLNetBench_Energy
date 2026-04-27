@@ -33,10 +33,9 @@ LDLIBS := -lccl -lsycl -lpthread -ldl -lpower_profiler
 # -------------------------
 # Targets
 # -------------------------
-all: data_parallel hybrid_parallel
+all: data_parallel
 
 data_parallel: dp fsdp
-hybrid_parallel: hybrid_2d hybrid_3d hybrid_3d_moe
 
 dp:
 	$(CXX) $(CXXFLAGS) -o $(DP_PATH)/dp $(DP_PATH)/dp.cpp $(LDFLAGS) $(LDLIBS)
