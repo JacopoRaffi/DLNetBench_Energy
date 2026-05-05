@@ -296,6 +296,8 @@ int main(int argc, char* argv[]) {
     int num_gpus = gpus.size();
     
     sycl::device my_gpu = gpus[rank % num_gpus];
+    my_device = rank % num_gpus; // update my_device to reflect local GPU index
+    CCUTILS_MPI_ALL_PRINT(fprintf(fp, "Using GPU %d\n", my_device);)
     DeviceManager::init(my_gpu);
     sycl::queue& my_queue = DeviceManager::get_queue();
     sycl::context my_ctx = my_queue.get_context();
@@ -317,7 +319,7 @@ int main(int argc, char* argv[]) {
 
     // Create OneCCL unit communicator
     auto unit_world_comm = ccl::create_communicator(unit_size, unit_rank, ccl_dev, ccl_ctx, unit_kvs);
-    OneCCLCommunicator* unit_comm_proxy = new OneCCLCommunicator(std::move(unit_world_comm), my_ctx, my_gpu, num_units);
+    OneCCLCommunicator* unit_comm_proxy = new OneCCLCommunicator(std::move(unit_world_comm), my_ctx, my_gpu, my_queue, num_units);
 
     ccl::shared_ptr_class<ccl::kvs> allreduce_kvs;
     if (allreduce_rank == 0) allreduce_kvs = ccl::create_main_kvs();
@@ -330,7 +332,7 @@ int main(int argc, char* argv[]) {
     if (allreduce_rank != 0) allreduce_kvs = ccl::create_kvs(allreduce_kvs_addr);
 
     auto allreduce_world_comm = ccl::create_communicator(allreduce_size, allreduce_rank, ccl_dev, ccl_ctx, allreduce_kvs);
-    OneCCLCommunicator* allreduce_comm_proxy = new OneCCLCommunicator(std::move(allreduce_world_comm), my_ctx, my_gpu, num_units);
+    OneCCLCommunicator* allreduce_comm_proxy = new OneCCLCommunicator(std::move(allreduce_world_comm), my_ctx, my_gpu, my_queue, num_units);
 #else
     MPICommunicator* unit_comm_proxy = new MPICommunicator(unit_comm, MPI_FLOAT, num_units);
     MPICommunicator* allreduce_comm_proxy = new MPICommunicator(allreduce_comm, MPI_FLOAT, num_units);

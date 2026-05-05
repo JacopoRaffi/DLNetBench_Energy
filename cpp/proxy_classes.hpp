@@ -26,7 +26,6 @@
     #include <sycl/sycl.hpp>  // SYCL header for queues and device memory
 #endif
 
-//TODO: add Send/Recv methods and make function inlines for performance
 class ProxyCommunicator {
 public:
     virtual void Iallreduce(const void* sendbuf, void* recvbuf, int count, int index) = 0;
@@ -255,15 +254,14 @@ private:
 #ifdef PROXY_ENABLE_ONECCL
 class OneCCLCommunicator : public ProxyCommunicator {
 public:
-    OneCCLCommunicator(ccl::communicator&& comm_in, sycl::context ctx, sycl::device dev, int num_streams = 1)
+    OneCCLCommunicator(ccl::communicator&& comm_in, sycl::context ctx, sycl::device dev, sycl::queue& queue, int num_streams = 1)
         : comm(std::move(comm_in)), num_streams(num_streams)
     {
         // create one queue per stream
         events.resize(num_streams);
         ccl_streams.reserve(num_streams);
         for (int i = 0; i < num_streams; i++) {
-            sycl::queue tmp_queue(ctx, dev);
-            ccl_streams.push_back(ccl::create_stream(tmp_queue));
+            ccl_streams.push_back(ccl::create_stream(queue));
         }
     }
 

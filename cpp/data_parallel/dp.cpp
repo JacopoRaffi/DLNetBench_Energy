@@ -193,6 +193,8 @@ int main(int argc, char* argv[]) {
     std::vector<sycl::device> gpus = sycl::device::get_devices(sycl::info::device_type::gpu);
     int num_gpus = gpus.size();
     sycl::device dev = gpus[rank % num_gpus];
+    my_device = rank % num_gpus; // update my_device to reflect local GPU index
+    CCUTILS_MPI_ALL_PRINT(fprintf(fp, "Using GPU %d\n", my_device);)
  
     DeviceManager::init(dev);
     sycl::queue& queue = DeviceManager::get_queue();
@@ -220,7 +222,7 @@ int main(int argc, char* argv[]) {
     ccl::context ccl_ctx = ccl::create_context(ctx);
     // Create communicator
     auto world_comm_ccl = ccl::create_communicator(world_size, rank, ccl_dev, ccl_ctx, kvs);
-    OneCCLCommunicator* communicator = new OneCCLCommunicator(std::move(world_comm_ccl), ctx, dev, num_buckets); 
+    OneCCLCommunicator* communicator = new OneCCLCommunicator(std::move(world_comm_ccl), ctx, dev, queue, num_buckets); 
 #else
     MPICommunicator* communicator = new MPICommunicator(MPI_COMM_WORLD, MPI_FLOAT, num_buckets);
 #endif
